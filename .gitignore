@@ -1,0 +1,12 @@
+# Isolation / scratch
+.worktrees/
+.superpowers/
+
+# Build artifacts
+bin/
+obj/
+*.user
+publish/
+
+# OS
+.DS_Store
