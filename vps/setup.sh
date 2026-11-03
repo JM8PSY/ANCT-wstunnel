@@ -52,26 +52,33 @@ ENDPOINT="${HOST:-$IP}"
 # TODO Task 6: install_packages; install_wstunnel (slot in here, before keygen
 # since wg_genkeypair/openssl need the packages).
 
-umask 077
 mkdir -p "$WGVPN_ETC"
 chmod 700 "$WGVPN_ETC"
 
-# Idempotency: keys are generated only on first run. Regenerating would
-# invalidate an already-distributed client bundle.
-if [ ! -s "$WGVPN_ETC/server.key" ] || [ ! -s "$WGVPN_ETC/server.pub" ] \
-   || [ ! -s "$WGVPN_ETC/client.key" ] || [ ! -s "$WGVPN_ETC/client.pub" ]; then
-  { read -r s_priv; read -r s_pub; } < <(wg_genkeypair)
-  { read -r c_priv; read -r c_pub; } < <(wg_genkeypair)
-  printf '%s\n' "$s_priv" > "$WGVPN_ETC/server.key"
-  printf '%s\n' "$s_pub"  > "$WGVPN_ETC/server.pub"
-  printf '%s\n' "$c_priv" > "$WGVPN_ETC/client.key"
-  printf '%s\n' "$c_pub"  > "$WGVPN_ETC/client.pub"
-  unset s_priv s_pub c_priv c_pub
+# Idempotency: each keypair is generated only if ITS files are missing/empty.
+# Regenerating would invalidate an already-distributed client bundle, and the
+# server and client pairs are decoupled so losing one never rotates the other.
+# The restrictive umask is scoped to subshells that write secrets.
+if [ ! -s "$WGVPN_ETC/server.key" ] || [ ! -s "$WGVPN_ETC/server.pub" ]; then
+  (
+    umask 077
+    { read -r k; read -r p; } < <(wg_genkeypair)
+    printf '%s\n' "$k" > "$WGVPN_ETC/server.key"
+    printf '%s\n' "$p" > "$WGVPN_ETC/server.pub"
+  )
+fi
+if [ ! -s "$WGVPN_ETC/client.key" ] || [ ! -s "$WGVPN_ETC/client.pub" ]; then
+  (
+    umask 077
+    { read -r k; read -r p; } < <(wg_genkeypair)
+    printf '%s\n' "$k" > "$WGVPN_ETC/client.key"
+    printf '%s\n' "$p" > "$WGVPN_ETC/client.pub"
+  )
 fi
 
 if [ ! -s "$WGVPN_ETC/cert.pem" ] || [ ! -s "$WGVPN_ETC/key.pem" ] \
    || [ ! -s "$WGVPN_ETC/tls.sha256" ]; then
-  tls_gen_selfsigned "$WGVPN_ETC" > "$WGVPN_ETC/tls.sha256"
+  (umask 077; tls_gen_selfsigned "$WGVPN_ETC" > "$WGVPN_ETC/tls.sha256")
 fi
 chmod 600 "$WGVPN_ETC"/*.key "$WGVPN_ETC"/*.pem
 
@@ -82,12 +89,12 @@ client_pub="$(cat "$WGVPN_ETC/client.pub")"
 tls_sha="$(cat "$WGVPN_ETC/tls.sha256")"
 
 mkdir -p "$(dirname "$WGVPN_WG_CONF")" "$(dirname "$WGVPN_UNIT")"
-render_wg_server_conf "$server_priv" "$client_pub" > "$WGVPN_WG_CONF"
+(umask 077; render_wg_server_conf "$server_priv" "$client_pub" > "$WGVPN_WG_CONF")
 chmod 600 "$WGVPN_WG_CONF"
 render_wstunnel_unit "$WG_UDP_PORT" > "$WGVPN_UNIT"
 chmod 644 "$WGVPN_UNIT"
 
-render_bundle "$ENDPOINT" "$WSS_PORT" "$tls_sha" "$client_priv" "$server_pub" > "$OUT.tmp"
+(umask 077; render_bundle "$ENDPOINT" "$WSS_PORT" "$tls_sha" "$client_priv" "$server_pub" > "$OUT.tmp")
 chmod 600 "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
 unset server_priv client_priv

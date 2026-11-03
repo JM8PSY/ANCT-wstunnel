@@ -72,6 +72,26 @@ teardown() {
   [[ "$output" == *"$out"* ]]
   [[ "$output" == *"x.ddns.net"* ]]
   [[ "$output" != *"$(jq -r .wireguard.privateKey "$out")"* ]]
+  [[ "$output" != *"$(cat "$WGVPN_ETC/server.key")"* ]]
+  for f in server.key client.key; do
+    m="$(stat -c %a "$WGVPN_ETC/$f" 2>/dev/null || stat -f %Lp "$WGVPN_ETC/$f")"
+    [ "$m" = "600" ]
+  done
+  m="$(stat -c %a "$WGVPN_SYSCTL_D/99-wgvpn.conf" 2>/dev/null || stat -f %Lp "$WGVPN_SYSCTL_D/99-wgvpn.conf")"
+  [ "$m" = "644" ]
+}
+
+@test "client keys regenerate independently; server keypair kept" {
+  setup_stubs
+  out="$BATS_TEST_TMPDIR/b.json"
+  run bash vps/setup.sh --host x.ddns.net --out "$out"
+  [ "$status" -eq 0 ]
+  s1="$(cat "$WGVPN_ETC/server.key")"; c1="$(cat "$WGVPN_ETC/client.key")"
+  rm "$WGVPN_ETC/client.key" "$WGVPN_ETC/client.pub"
+  run bash vps/setup.sh --host x.ddns.net --out "$out"
+  [ "$status" -eq 0 ]
+  [ "$s1" = "$(cat "$WGVPN_ETC/server.key")" ]
+  [ "$c1" != "$(cat "$WGVPN_ETC/client.key")" ]
 }
 
 @test "--host wins over --ip" {
