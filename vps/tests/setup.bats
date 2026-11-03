@@ -63,6 +63,7 @@ STUB
   export WGVPN_WSTUNNEL_BIN="$BATS_TEST_TMPDIR/bin/wstunnel"
   chmod +x "$stubdir"/*
   export PATH="$stubdir:$PATH"
+  export WGVPN_SKIP_ROOT_CHECK=1
   export WGVPN_ETC="$BATS_TEST_TMPDIR/etc"
   export WGVPN_SYSCTL_D="$BATS_TEST_TMPDIR/sysctl.d"
   export WGVPN_WG_CONF="$BATS_TEST_TMPDIR/wg/wg0.conf"
@@ -127,4 +128,27 @@ teardown() {
   [ "$status" -eq 0 ]
   [ "$k1" = "$(jq -r .wireguard.privateKey "$out")" ]
   [ "$s1" = "$(jq -r .wireguard.serverPublicKey "$out")" ]
+}
+
+@test "non-root without override exits non-zero with message" {
+  stubdir="$BATS_TEST_TMPDIR/rstubs"; mkdir -p "$stubdir"
+  printf '#!/usr/bin/env bash\necho 1000\n' > "$stubdir/id"; chmod +x "$stubdir/id"
+  PATH="$stubdir:$PATH" run env -u WGVPN_SKIP_ROOT_CHECK bash vps/setup.sh --host x.ddns.net
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be run as root"* ]]
+}
+
+@test "missing tls.sha256 with existing cert+key does not rotate the cert" {
+  setup_stubs
+  out="$BATS_TEST_TMPDIR/b.json"
+  run bash vps/setup.sh --host x.ddns.net --out "$out"
+  [ "$status" -eq 0 ]
+  echo "ORIGINAL-CERT" > "$WGVPN_ETC/cert.pem"
+  echo "ORIGINAL-KEY" > "$WGVPN_ETC/key.pem"
+  rm "$WGVPN_ETC/tls.sha256"
+  run bash vps/setup.sh --host x.ddns.net --out "$out"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$WGVPN_ETC/cert.pem")" = "ORIGINAL-CERT" ]
+  [ "$(cat "$WGVPN_ETC/key.pem")" = "ORIGINAL-KEY" ]
+  [ "$(cat "$WGVPN_ETC/tls.sha256")" = "aabbccdd" ]
 }

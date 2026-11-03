@@ -96,3 +96,30 @@ STUB
   PATH="$stubs:$PATH" run_install
   [ "$status" -eq 0 ]
 }
+
+@test "enable_services does not abort when ip6tables is present but unusable" {
+  stubs="$work/stubs6"; mkdir -p "$stubs"
+  cat > "$stubs/iptables" <<'STUB'
+#!/usr/bin/env bash
+echo "iptables $*" >> "$IPT_LOG"
+if [ "$1" = -C ]; then grep -q "^RULE$" "$IPT_STATE" 2>/dev/null; exit $?; fi
+if [ "$1" = -I ] || [ "$1" = -A ]; then echo RULE >> "$IPT_STATE"; fi
+STUB
+  cat > "$stubs/ip6tables" <<'STUB'
+#!/usr/bin/env bash
+echo "ip6tables $*" >> "$IPT_LOG"
+exit 3
+STUB
+  for c in systemctl netfilter-persistent; do
+    printf '#!/usr/bin/env bash\necho "%s $*" >> "$IPT_LOG"\n' "$c" > "$stubs/$c"
+  done
+  chmod +x "$stubs"/*
+  export IPT_LOG="$work/log6" IPT_STATE="$work/state6"
+  export WGVPN_WG_CONF="$work/wg0.conf"
+  PATH="$stubs:$PATH" run bash -c 'set -e; source vps/lib/install.sh; enable_services'
+  [ "$status" -eq 0 ]
+  grep -qE '^iptables -I INPUT 1 ! -i lo -p udp --dport 51820 -j DROP$' "$IPT_LOG"
+  ! grep -q '^ip6tables -I' "$IPT_LOG"
+  grep -q 'netfilter-persistent save' "$IPT_LOG"
+  grep -q 'enable --now wstunnel' "$IPT_LOG"
+}

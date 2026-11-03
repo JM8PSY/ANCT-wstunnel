@@ -31,6 +31,12 @@ if [ -z "$HOST" ] && [ -z "$IP" ]; then
   usage
 fi
 
+# WGVPN_SKIP_ROOT_CHECK=1 is for the test harness only.
+if [ "${WGVPN_SKIP_ROOT_CHECK:-}" != 1 ] && [ "$(id -u)" != 0 ]; then
+  echo "This script must be run as root (use sudo)." >&2
+  exit 1
+fi
+
 # shellcheck source=lib/keys.sh
 . "$SCRIPT_DIR/lib/keys.sh"
 # shellcheck source=lib/render.sh
@@ -68,6 +74,8 @@ if [ ! -s "$WGVPN_ETC/server.key" ] || [ ! -s "$WGVPN_ETC/server.pub" ]; then
     printf '%s\n' "$p" > "$WGVPN_ETC/server.pub"
   )
 fi
+# NOTE: a running wg-quick@wg0 won't pick up a regenerated client peer until
+# `systemctl restart wg-quick@wg0` (see README caveat #2).
 if [ ! -s "$WGVPN_ETC/client.key" ] || [ ! -s "$WGVPN_ETC/client.pub" ]; then
   (
     umask 077
@@ -77,9 +85,12 @@ if [ ! -s "$WGVPN_ETC/client.key" ] || [ ! -s "$WGVPN_ETC/client.pub" ]; then
   )
 fi
 
-if [ ! -s "$WGVPN_ETC/cert.pem" ] || [ ! -s "$WGVPN_ETC/key.pem" ] \
-   || [ ! -s "$WGVPN_ETC/tls.sha256" ]; then
+if [ ! -s "$WGVPN_ETC/cert.pem" ] || [ ! -s "$WGVPN_ETC/key.pem" ]; then
   (umask 077; tls_gen_selfsigned "$WGVPN_ETC" > "$WGVPN_ETC/tls.sha256")
+elif [ ! -s "$WGVPN_ETC/tls.sha256" ]; then
+  # Cert+key exist: never rotate them (would invalidate a distributed bundle);
+  # just recompute the fingerprint from the existing cert.
+  (umask 077; tls_fingerprint "$WGVPN_ETC" > "$WGVPN_ETC/tls.sha256")
 fi
 chmod 600 "$WGVPN_ETC"/*.key "$WGVPN_ETC"/*.pem
 

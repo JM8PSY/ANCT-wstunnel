@@ -12,7 +12,7 @@ wg_genkeypair() {
 # Writes cert.pem/key.pem (mode 600) into <dir>; prints sha256 fingerprint
 # as lowercase hex without colons.
 tls_gen_selfsigned() {
-  local dir="$1" fp
+  local dir="$1"
   (
     umask 077
     mkdir -p "$dir"
@@ -20,7 +20,13 @@ tls_gen_selfsigned() {
       -keyout "$dir/key.pem" -out "$dir/cert.pem" 2>/dev/null
   )
   chmod 600 "$dir/cert.pem" "$dir/key.pem"
-  fp="$(openssl x509 -in "$dir/cert.pem" -noout -fingerprint -sha256)"
+  tls_fingerprint "$dir"
+}
+
+# Prints the sha256 fingerprint of <dir>/cert.pem as lowercase hex, no colons.
+tls_fingerprint() {
+  local fp
+  fp="$(openssl x509 -in "$1/cert.pem" -noout -fingerprint -sha256)"
   fp="${fp#*=}"
   fp="${fp//:/}"
   printf '%s\n' "$fp" | tr 'A-F' 'a-f'
