@@ -49,8 +49,9 @@ WSS_PORT=443
 # --host (DDNS) wins over --ip.
 ENDPOINT="${HOST:-$IP}"
 
-# TODO Task 6: install_packages; install_wstunnel (slot in here, before keygen
-# since wg_genkeypair/openssl need the packages).
+# Packages/binary first: wg_genkeypair/openssl need them.
+install_packages
+install_wstunnel
 
 mkdir -p "$WGVPN_ETC"
 chmod 700 "$WGVPN_ETC"
@@ -103,7 +104,7 @@ enable_forwarding
 egress_iface="$(detect_egress_iface)"
 apply_nat "$egress_iface"
 
-# TODO Task 6: enable_services (wg-quick@wg0, wstunnel).
+enable_services
 
 echo "Setup complete."
 echo "  Endpoint host: $ENDPOINT"

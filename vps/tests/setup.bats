@@ -22,7 +22,7 @@ STUB
 setup_stubs() {
   stubdir="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$stubdir"
-  for c in apt-get systemctl iptables sysctl netfilter-persistent; do
+  for c in debconf-set-selections wg-quick apt-get systemctl iptables sysctl netfilter-persistent; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$stubdir/$c"
   done
   cat > "$stubdir/wg" <<'STUB'
@@ -47,6 +47,20 @@ STUB
 #!/usr/bin/env bash
 echo "default via 10.0.0.1 dev ens3 proto dhcp"
 STUB
+  # Hermetic wstunnel install: stub curl serves a local tarball whose sha256
+  # is pinned via a temp VERSIONS file.
+  mkdir -p "$BATS_TEST_TMPDIR/src"
+  echo bin > "$BATS_TEST_TMPDIR/src/wstunnel"
+  tar -czf "$BATS_TEST_TMPDIR/ws.tar.gz" -C "$BATS_TEST_TMPDIR/src" wstunnel
+  sha="$(shasum -a 256 "$BATS_TEST_TMPDIR/ws.tar.gz" | awk '{print $1}')"
+  printf 'WSTUNNEL_VERSION=v11.1.0\nWSTUNNEL_SHA256_AMD64=%s\nWSTUNNEL_SHA256_ARM64=%s\n' "$sha" "$sha" > "$BATS_TEST_TMPDIR/VERSIONS"
+  cat > "$stubdir/curl" <<STUB
+#!/usr/bin/env bash
+while [ \$# -gt 0 ]; do [ "\$1" = -o ] && out="\$2"; shift; done
+cp "$BATS_TEST_TMPDIR/ws.tar.gz" "\$out"
+STUB
+  export WGVPN_VERSIONS="$BATS_TEST_TMPDIR/VERSIONS"
+  export WGVPN_WSTUNNEL_BIN="$BATS_TEST_TMPDIR/bin/wstunnel"
   chmod +x "$stubdir"/*
   export PATH="$stubdir:$PATH"
   export WGVPN_ETC="$BATS_TEST_TMPDIR/etc"
