@@ -16,8 +16,9 @@ detect_egress_iface() {
 
 # Persistent (sysctl.d survives reboot) + applied immediately.
 enable_forwarding() {
-  printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-wgvpn.conf
-  sysctl -p /etc/sysctl.d/99-wgvpn.conf >/dev/null
+  mkdir -p "${WGVPN_SYSCTL_D:-/etc/sysctl.d}"
+  printf 'net.ipv4.ip_forward=1\n' > "${WGVPN_SYSCTL_D:-/etc/sysctl.d}/99-wgvpn.conf"
+  sysctl -p "${WGVPN_SYSCTL_D:-/etc/sysctl.d}/99-wgvpn.conf" >/dev/null
 }
 
 # Idempotent MASQUERADE for the WG subnet out <egress_iface>.
