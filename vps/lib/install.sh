@@ -32,7 +32,7 @@ install_wstunnel() {
   local versions="${WGVPN_VERSIONS:-$_INSTALL_LIB_DIR/../VERSIONS}"
   local bin="${WGVPN_WSTUNNEL_BIN:-/usr/local/bin/wstunnel}"
   local WSTUNNEL_VERSION WSTUNNEL_SHA256_AMD64 WSTUNNEL_SHA256_ARM64
-  # shellcheck source=../VERSIONS
+  # shellcheck disable=SC1091,SC1090
   . "$versions"
 
   local arch expected
