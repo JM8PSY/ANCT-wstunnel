@@ -23,6 +23,7 @@
 - Unsigned binaries; ship SmartScreen "More info → Run anyway" guidance (§5.3 decision).
 - Consume bundle schema version 1 exactly; refuse unknown versions.
 - No SNI spoofing / evasion; plain host+port only (anti-goal).
+- License: GPL-3.0-or-later. Each new source file starts with an SPDX header: `// SPDX-License-Identifier: GPL-3.0-or-later` and `// Copyright (C) 2026 National Institute of Technology, Asahikawa College New-Tech-Club`.
 
 ## Review Focus
 

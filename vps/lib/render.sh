@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 National Institute of Technology, Asahikawa College New-Tech-Club
 # shellcheck shell=bash
 # Pure render functions: print to stdout, no side effects.
 

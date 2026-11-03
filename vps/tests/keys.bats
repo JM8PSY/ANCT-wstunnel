@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 National Institute of Technology, Asahikawa College New-Tech-Club
 
 setup() {
   # shellcheck source=../lib/keys.sh
