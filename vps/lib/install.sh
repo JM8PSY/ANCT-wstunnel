@@ -70,6 +70,11 @@ _restrict_wg_port() {
   local port="${WG_UDP_PORT:-51820}"
   iptables -C INPUT ! -i lo -p udp --dport "$port" -j DROP 2>/dev/null \
     || iptables -I INPUT 1 ! -i lo -p udp --dport "$port" -j DROP
+  # WireGuard also binds [::]:port; close the IPv6 side too when available.
+  if command -v ip6tables >/dev/null 2>&1; then
+    ip6tables -C INPUT ! -i lo -p udp --dport "$port" -j DROP 2>/dev/null \
+      || ip6tables -I INPUT 1 ! -i lo -p udp --dport "$port" -j DROP
+  fi
   netfilter-persistent save
 }
 

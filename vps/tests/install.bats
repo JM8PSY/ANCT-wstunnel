@@ -56,6 +56,12 @@ echo "iptables $*" >> "$IPT_LOG"
 if [ "$1" = -C ]; then grep -q "^RULE$" "$IPT_STATE" 2>/dev/null; exit $?; fi
 if [ "$1" = -I ] || [ "$1" = -A ]; then echo RULE >> "$IPT_STATE"; fi
 STUB
+  cat > "$stubs/ip6tables" <<'STUB'
+#!/usr/bin/env bash
+echo "ip6tables $*" >> "$IPT_LOG"
+if [ "$1" = -C ]; then grep -q "^RULE6$" "$IPT_STATE" 2>/dev/null; exit $?; fi
+if [ "$1" = -I ] || [ "$1" = -A ]; then echo RULE6 >> "$IPT_STATE"; fi
+STUB
   for c in systemctl netfilter-persistent; do
     printf '#!/usr/bin/env bash\necho "%s $*" >> "$IPT_LOG"\n' "$c" > "$stubs/$c"
   done
@@ -65,8 +71,28 @@ STUB
   PATH="$stubs:$PATH" run bash -c 'source vps/lib/install.sh; enable_services; enable_services'
   [ "$status" -eq 0 ]
   [ "$(grep -c '^RULE$' "$IPT_STATE")" = "1" ]
-  grep -q 'dport 51820' "$IPT_LOG"
+  [ "$(grep -c '^RULE6$' "$IPT_STATE")" = "1" ]
+  grep -qE '^iptables -I INPUT 1 ! -i lo -p udp --dport 51820 -j DROP$' "$IPT_LOG"
+  grep -qE '^ip6tables -I INPUT 1 ! -i lo -p udp --dport 51820 -j DROP$' "$IPT_LOG"
   grep -q 'enable --now wg-quick@wg0' "$IPT_LOG"
   grep -q 'enable --now wstunnel' "$IPT_LOG"
   grep -q 'netfilter-persistent save' "$IPT_LOG"
+}
+
+@test "arch mapping selects matching hash (x86_64->amd64, aarch64->arm64)" {
+  stubs="$work/ustubs"; mkdir -p "$stubs"
+  printf 'WSTUNNEL_VERSION=v11.1.0\nWSTUNNEL_SHA256_AMD64=%s\nWSTUNNEL_SHA256_ARM64=%s\n' \
+    "$good_sha" "0000000000000000000000000000000000000000000000000000000000000000" > "$WGVPN_VERSIONS"
+  printf '#!/usr/bin/env bash\necho x86_64\n' > "$stubs/uname"; chmod +x "$stubs/uname"
+  PATH="$stubs:$PATH" run_install
+  [ "$status" -eq 0 ]
+  rm -f "$WGVPN_WSTUNNEL_BIN"
+  printf '#!/usr/bin/env bash\necho aarch64\n' > "$stubs/uname"
+  PATH="$stubs:$PATH" run_install
+  [ "$status" -ne 0 ]
+  [ ! -e "$WGVPN_WSTUNNEL_BIN" ]
+  printf 'WSTUNNEL_VERSION=v11.1.0\nWSTUNNEL_SHA256_AMD64=%s\nWSTUNNEL_SHA256_ARM64=%s\n' \
+    "0000000000000000000000000000000000000000000000000000000000000000" "$good_sha" > "$WGVPN_VERSIONS"
+  PATH="$stubs:$PATH" run_install
+  [ "$status" -eq 0 ]
 }
