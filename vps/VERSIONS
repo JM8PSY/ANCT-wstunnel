@@ -1,0 +1,5 @@
+# Pinned upstream artifacts (source: https://github.com/erebe/wstunnel/releases/tag/v11.1.0)
+# sha256 computed from the downloaded release tarballs.
+WSTUNNEL_VERSION=v11.1.0
+WSTUNNEL_SHA256_AMD64=512edf4e7bb64fc133522220123514868fae75b5bae4124b53e396787276aa23
+WSTUNNEL_SHA256_ARM64=148895f957a68be39e2b65d28c5f2065b9c58c4a0cfd48c560b2b3267f398464
