@@ -5,6 +5,10 @@ setup() {
   source vps/lib/keys.sh
 }
 
+teardown() {
+  rm -rf "$BATS_TEST_TMPDIR/tls"
+}
+
 @test "wg_genkeypair prints private then public key" {
   command -v wg >/dev/null || skip "wg not installed"
   run wg_genkeypair
@@ -13,11 +17,12 @@ setup() {
   [[ "${lines[0]}" =~ ^[A-Za-z0-9+/]{43}=$ ]]
   [[ "${lines[1]}" =~ ^[A-Za-z0-9+/]{43}=$ ]]
   [ "${lines[0]}" != "${lines[1]}" ]
+  [ "$(printf '%s' "${lines[0]}" | wg pubkey)" = "${lines[1]}" ]
 }
 
 @test "tls_gen_selfsigned writes 600 cert/key and prints matching fingerprint" {
   command -v openssl >/dev/null || skip "openssl not installed"
-  dir="$BATS_TMPDIR/tls-$$"
+  dir="$BATS_TEST_TMPDIR/tls"
   rm -rf "$dir"
   run tls_gen_selfsigned "$dir"
   [ "$status" -eq 0 ]
