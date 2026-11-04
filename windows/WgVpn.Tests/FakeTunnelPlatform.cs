@@ -48,6 +48,7 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
     public string Handshakes = "pub\t1762230000\n";
     public RecoveryState? Recovery;
     public bool RecoveryCorrupt;
+    public bool TunnelExists;
     public Dictionary<int, string> ProcessNames = [];
     public string? WrittenConf;
     public string[]? WstunnelArgv;
@@ -212,6 +213,12 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
     public Task DeleteConfAsync() => Hit("delete-conf");
     public Task InstallTunnelAsync(CancellationToken ct) => Hit("install", ct);
     public Task UninstallTunnelAsync(CancellationToken ct) => Hit("uninstall", ct);
+
+    public async Task<bool> TunnelExistsAsync(CancellationToken ct)
+    {
+        await Hit("tunnel-exists", ct);
+        return TunnelExists;
+    }
 
     public async Task<string> GetLatestHandshakesAsync(CancellationToken ct)
     {

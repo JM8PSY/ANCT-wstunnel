@@ -41,6 +41,11 @@ public static class WireguardConf
                 parts.Add("0.0.0.0/1");
                 parts.Add("128.0.0.0/1");
             }
+            else if (entry == "::/0")
+            {
+                parts.Add("::/1");
+                parts.Add("8000::/1");
+            }
             else
             {
                 parts.Add(entry);

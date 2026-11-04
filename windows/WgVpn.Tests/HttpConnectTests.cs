@@ -34,7 +34,7 @@ public class HttpConnectTests
         var s = Reply("HTTP/1.1 200 Connection established\r\n\r\n");
         await HttpConnect.EstablishAsync(s, "vpn.example", 443, default);
         Assert.Equal(
-            "CONNECT vpn.example:443 HTTP/1.1\r\nHost: vpn.example:443\r\n\r\n",
+            "CONNECT vpn.example:443 HTTP/1.0\r\nHost: vpn.example:443\r\n\r\n",
             Encoding.ASCII.GetString(s.Written.ToArray()));
     }
 

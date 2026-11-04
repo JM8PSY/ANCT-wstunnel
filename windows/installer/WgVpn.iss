@@ -45,6 +45,8 @@ english.DataDirReparse=%1 is a symbolic link or junction. Setup is aborting for 
 japanese.DataDirOwner=%1 の所有者が SYSTEM / Administrators ではありません。安全のためインストールを中止します。フォルダーを確認して削除してから再実行してください。
 english.DataDirOwner=%1 is not owned by SYSTEM or Administrators. Setup is aborting for safety. Inspect and remove it, then run Setup again.
 japanese.DataDirFail=データフォルダー %1 を安全に準備できませんでした (%2)。
+japanese.DataDirContents=%1 にリンク、所有者が SYSTEM / Administrators ではない項目、または独自のアクセス許可を持つ項目があります (または作成時にフォルダーが空ではありませんでした)。安全のためインストールを中止します。確認して削除してから再実行してください。
+english.DataDirContents=%1 contains items that are links, are not owned by SYSTEM or Administrators, or carry their own permissions (or the folder was not empty when it was created). Setup is aborting for safety. Inspect and remove them, then run Setup again.
 english.DataDirFail=Could not prepare the data folder %1 safely (%2).
 japanese.WgInstallFail=WireGuard for Windows のインストールに失敗しました (終了コード %1)。
 english.WgInstallFail=Installing WireGuard for Windows failed (exit code %1).
@@ -72,7 +74,7 @@ Name: "{group}\ANCT WireGuard VPN"; Filename: "{app}\{#AppExe}"
 
 [Registry]
 ; Start the tray GUI for every user at logon (runs non-elevated; the service does the privileged work).
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "WgVpn"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "WgVpn"; ValueData: """{app}\{#AppExe}"" --tray"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,ANCT WireGuard VPN}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: ShouldLaunchGui
@@ -178,6 +180,8 @@ begin
     '    foreach ($c in Get-ChildItem -Force -LiteralPath $p) {' + #13#10 +
     '      if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { return 4 }' + #13#10 +
     '      if (-not (Test-Trusted $c.FullName)) { return 4 }' + #13#10 +
+    '      # After the DACL lock every legitimate child inherits. An explicit ACE (e.g. a planted Users grant) is not ours.' + #13#10 +
+    '      foreach ($rule in (Get-Acl -LiteralPath $c.FullName).GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier])) { return 4 }' + #13#10 +
     '    }' + #13#10 +
     '    return 0' + #13#10 +
     '  }' + #13#10 +
@@ -192,8 +196,9 @@ begin
     '  } else {' + #13#10 +
     '    $r = Test-Folder; if ($r -ne 0) { exit $r }' + #13#10 +
     '    if ($CheckOnly) { exit 0 }' + #13#10 +
-    '    if ((Test-Children) -ne 0) { exit 4 }' + #13#10 +
     '    (New-Object IO.DirectoryInfo($p)).SetAccessControl((New-Sec))' + #13#10 +
+    '    # Scan only after the lock: nobody else can add or re-ACL children from here on, so one pass is final.' + #13#10 +
+    '    if ((Test-Children) -ne 0) { exit 4 }' + #13#10 +
     '  }' + #13#10 +
     '  if ($CheckOnly) { exit 0 }' + #13#10 +
     '  # Verify: still a real folder, trusted owner, protected DACL with exactly SYSTEM + Administrators.' + #13#10 +
@@ -231,7 +236,7 @@ begin
     0: Result := '';
     2: Result := FmtMessage(CustomMessage('DataDirReparse'), [DataDir]);
     3: Result := FmtMessage(CustomMessage('DataDirOwner'), [DataDir]);
-    4: Result := FmtMessage(CustomMessage('DataDirOwner'), [DataDir]);
+    4: Result := FmtMessage(CustomMessage('DataDirContents'), [DataDir]);
   else
     Result := FmtMessage(CustomMessage('DataDirFail'), [DataDir, 'exit ' + IntToStr(R)]);
   end;
@@ -355,11 +360,15 @@ begin
   begin
     { Holds bundle.json (contains the WireGuard private key). Never follow a link planted here. }
     Left := True;
-    if RunDataDirScript(True) = 0 then
+    R := RunDataDirScript(True);
+    if R = 0 then
     begin
       DelTree(DataDir, True, True, True);
       Left := DirExists(DataDir);
-    end;
+      if Left then Log('Could not delete the data folder: ' + DataDir);
+    end
+    else
+      Log('Data folder failed the safety check (exit ' + IntToStr(R) + '), left in place: ' + DataDir);
     if Left then
       SuppressibleMsgBox(FmtMessage(CustomMessage('DataLeft'), [DataDir]), mbError, MB_OK, IDOK)
     else

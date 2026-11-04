@@ -43,7 +43,7 @@ public static class BundleParser
                 new ServerInfo(
                     Str(server, "server", "host"),
                     Int(server, "server", "port", 1, 65535),
-                    Str(server, "server", "tlsSha256")),
+                    TlsFingerprint(server)),
                 new ProxyInfo(
                     Str(proxy, "proxy", "host"),
                     Int(proxy, "proxy", "port", 1, 65535)),
@@ -68,6 +68,14 @@ public static class BundleParser
         if (e.ValueKind != JsonValueKind.Object)
             throw new BundleFormatException($"Section {name} must be an object.");
         return e;
+    }
+
+    private static string TlsFingerprint(JsonElement server)
+    {
+        var s = Str(server, "server", "tlsSha256");
+        if (s.Length != 64 || !s.All(Uri.IsHexDigit))
+            throw new BundleFormatException("Field server.tlsSha256 must be exactly 64 hexadecimal characters.");
+        return s;
     }
 
     private static string Str(JsonElement section, string sectionName, string field)

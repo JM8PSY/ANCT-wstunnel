@@ -26,6 +26,7 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
 {
     private const string TunnelName = "wgvpn";
     private const string TunnelServiceName = "WireGuardTunnel$" + TunnelName;
+    private static readonly TimeSpan TunnelRemovalTimeout = TimeSpan.FromSeconds(15);
     private const string WireguardMissing = "WireGuard for Windows is not installed.";
 
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
@@ -323,13 +324,39 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
         var result = await RunCapturedAsync(_wireguardExe, ["/uninstalltunnelservice", TunnelName], ct).ConfigureAwait(false);
         if (result.ExitCode != 0)
             throw new TunnelException($"Uninstalling the WireGuard tunnel failed with exit code {result.ExitCode}: {result.Output.Trim()}");
+
+        // wireguard.exe only sends Stop and Delete without waiting. Returning early would let a
+        // quick reconnect hit "Tunnel already installed and running", so wait until it is really gone.
+        var deadline = DateTime.UtcNow + TunnelRemovalTimeout;
+        while (!TunnelServiceGoneOrStopped())
+        {
+            if (DateTime.UtcNow >= deadline)
+                throw new TunnelException("The WireGuard tunnel service did not stop in time.");
+            await Task.Delay(200, ct).ConfigureAwait(false);
+        }
     }
+
+    public Task<bool> TunnelExistsAsync(CancellationToken ct) => Task.FromResult(TunnelServiceExists());
 
     public async Task<string> GetLatestHandshakesAsync(CancellationToken ct)
     {
         EnsureWireguardInstalled();
         var result = await RunCapturedAsync(_wgExe, ["show", TunnelName, "latest-handshakes"], ct).ConfigureAwait(false);
         return result.ExitCode == 0 ? result.Output : string.Empty; // non-zero: the interface is not up yet
+    }
+
+    private static bool TunnelServiceGoneOrStopped()
+    {
+        var services = ServiceController.GetServices();
+        try
+        {
+            var svc = services.FirstOrDefault(s => string.Equals(s.ServiceName, TunnelServiceName, StringComparison.OrdinalIgnoreCase));
+            return svc == null || svc.Status == ServiceControllerStatus.Stopped;
+        }
+        finally
+        {
+            foreach (var s in services) s.Dispose();
+        }
     }
 
     private static bool TunnelServiceExists()

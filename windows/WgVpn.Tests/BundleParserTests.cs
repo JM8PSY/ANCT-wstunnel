@@ -21,6 +21,27 @@ public class BundleParserTests
     private static BundleFormatException Fails(string json) =>
         Assert.Throws<BundleFormatException>(() => BundleParser.Parse(json));
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("0123")]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde")]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0")]
+    [InlineData("01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef")]
+    [InlineData("zz23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")]
+    public void Rejects_malformed_tlsSha256_without_echoing_it(string value)
+    {
+        var e = Fails(Mutate(n => n["server"]!["tlsSha256"] = value));
+        Assert.Contains("server.tlsSha256", e.Message);
+        if (value.Length > 0) Assert.DoesNotContain(value, e.Message);
+    }
+
+    [Fact]
+    public void Accepts_uppercase_tlsSha256()
+    {
+        var b = BundleParser.Parse(Mutate(n => n["server"]!["tlsSha256"] = new string('A', 64)));
+        Assert.Equal(64, b.Server.TlsSha256.Length);
+    }
+
     [Fact]
     public void Parses_fixture()
     {

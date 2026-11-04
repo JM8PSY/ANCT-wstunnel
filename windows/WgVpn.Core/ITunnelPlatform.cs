@@ -67,6 +67,9 @@ public interface ITunnelPlatform
     /// <summary>Uninstalls the <c>wgvpn</c> tunnel; absent is not an error.</summary>
     Task UninstallTunnelAsync(CancellationToken ct);
 
+    /// <summary>True when a <c>wgvpn</c> tunnel service is installed, whatever its state.</summary>
+    Task<bool> TunnelExistsAsync(CancellationToken ct);
+
     /// <summary>Raw <c>wg show wgvpn latest-handshakes</c> output; empty while the interface does not exist yet.</summary>
     Task<string> GetLatestHandshakesAsync(CancellationToken ct);
 

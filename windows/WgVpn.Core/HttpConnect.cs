@@ -12,14 +12,14 @@ public static class HttpConnect
     public const int MaxResponseHeaderBytes = 16 * 1024;
 
     /// <summary>
-    /// Sends CONNECT and requires a complete 200 response. Reads one byte at a time so that
+    /// Sends CONNECT (as HTTP/1.0, like wstunnel, so the preflight rehearses its real request) and requires a complete 200 response. Reads one byte at a time so that
     /// no byte of the TLS stream following the header is consumed.
     /// </summary>
     /// <exception cref="TunnelException">The proxy refused, or did not answer with valid HTTP.</exception>
     public static async Task EstablishAsync(Stream stream, string host, int port, CancellationToken ct)
     {
         var authority = host + ":" + port.ToString(CultureInfo.InvariantCulture);
-        var request = Encoding.ASCII.GetBytes($"CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
+        var request = Encoding.ASCII.GetBytes($"CONNECT {authority} HTTP/1.0\r\nHost: {authority}\r\n\r\n");
         await stream.WriteAsync(request, ct).ConfigureAwait(false);
         await stream.FlushAsync(ct).ConfigureAwait(false);
 

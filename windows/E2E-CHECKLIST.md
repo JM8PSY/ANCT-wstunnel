@@ -49,6 +49,13 @@ Do not paste the bundle, private keys or its contents into notes.
       filters; `/0` would have engaged one and blocked wstunnel's LAN TCP). While connected, kill `wstunnel.exe`
       and record actual behaviour: does traffic leak direct (`https://ifconfig.me` shows the campus IP) before the
       service tears down, and for how long.
+- [ ] `wg show wgvpn latest-handshakes` (run elevated) over the loopback endpoint shows a recent non-zero
+      handshake timestamp for the server peer.
+- [ ] The proxy accepts wstunnel's real request: capture or log at the proxy that wstunnel's `CONNECT ... HTTP/1.0`
+      is answered with 200 (the preflight now sends HTTP/1.0 too, so a refusal shows up at preflight).
+- [ ] DNS while connected: `Resolve-DnsName <a name you sinkholed or that only your VPS resolver answers>`;
+      record which resolver answers (campus or the VPN's) and whether `Get-DnsClientServerAddress` per interface
+      explains it. See the README design-differences note (no metric change).
 - [ ] Pin mismatch refused: import a bundle whose `server.tlsSha256` is altered; connect shows
       "The server's TLS certificate does not match the fingerprint in the bundle." and no tunnel/routes appear.
 - [ ] Handshake timeout: with the VPS WireGuard stopped (or a wrong server public key in a test bundle),
@@ -69,6 +76,13 @@ Do not paste the bundle, private keys or its contents into notes.
 
 ## Toggle, crash, recovery
 
+- [ ] Rapid OFF then ON three times within 2 s: each ON succeeds (no "Tunnel already installed and running"),
+      the uninstall waits for the `WireGuardTunnel$wgvpn` service to disappear, and there is one `wstunnel.exe`.
+- [ ] Reboot while connected: after boot, measure how long traffic is blackholed (the auto-start tunnel service
+      has no wstunnel until the service's startup recovery uninstalls it); confirm "Recovery: removing a leftover
+      tunnel service." or the state-file recovery message appears in the log, and no `WireGuardTunnel$wgvpn` remains.
+- [ ] Error state: after a failed connect the toggle is OFF; one click retries Connect, and 切断 is still offered.
+- [ ] Logon autostart shows only the tray icon (no window); the post-install launch and the Start Menu entry show the window.
 - [ ] Toggle OFF/ON several times rapidly: never more than one `wstunnel.exe` (Task Manager / `Get-Process wstunnel`).
 - [ ] After OFF: no leftover routes (`route print` has no entry for the proxy/VPS host route, 0.0.0.0/1, 128.0.0.0/1
       via the tunnel) and no `WireGuardTunnel$wgvpn` service.

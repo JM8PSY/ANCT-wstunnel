@@ -45,11 +45,14 @@ public class StatusPresenterTests
     }
 
     [Fact]
-    public void Error_shows_text_and_offers_disconnect()
+    public void Error_shows_text_and_toggle_retries_connect()
     {
         var v = StatusPresenter.FromReply(new StatusReply(TunnelState.Error, "h", "boom"));
         Assert.Equal("エラー", v.StatusText);
         Assert.Equal("boom", v.ErrorText);
+        Assert.False(v.ToggleChecked); // the toggle's next click is Connect
+        Assert.True(v.ToggleEnabled);
+        Assert.True(v.ConnectOffered);
         Assert.True(v.DisconnectOffered);
         Assert.Equal(TrayState.Error, v.Tray);
     }

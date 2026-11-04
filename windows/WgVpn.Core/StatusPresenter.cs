@@ -36,7 +36,8 @@ public static class StatusPresenter
         {
             TunnelState.Connecting => new("接続中", true, true, server, error, TrayState.Connecting, false, true),
             TunnelState.Connected => new("接続済み", true, true, server, error, TrayState.Connected, false, true),
-            TunnelState.Error => new("エラー", true, true, server, error, TrayState.Error, false, true),
+            // ToggleChecked false: one click on the toggle retries Connect; Disconnect stays offered.
+            TunnelState.Error => new("エラー", true, false, server, error, TrayState.Error, true, true),
             // Disconnected with an error means a failed cleanup: the user must be able to retry Disconnect.
             _ => new("未接続", true, false, server, error,
                 error == null ? TrayState.Idle : TrayState.Error, true, error != null),

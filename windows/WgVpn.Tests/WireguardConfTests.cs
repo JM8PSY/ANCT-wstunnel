@@ -57,9 +57,17 @@ public class WireguardConfTests
     }
 
     [Fact]
+    public void Render_Ipv6DefaultRouteSplitIntoTwoHalves()
+    {
+        var conf = WireguardConf.Render(WithAllowed("::/0"));
+        Assert.Contains("AllowedIPs = ::/1, 8000::/1", conf);
+        Assert.DoesNotContain("::/0", conf);
+    }
+
+    [Fact]
     public void Render_MixedListSplitsDefaultAndPreservesOrder()
     {
         var conf = WireguardConf.Render(WithAllowed("10.0.0.0/8,0.0.0.0/0 , ::/0"));
-        Assert.Contains("AllowedIPs = 10.0.0.0/8, 0.0.0.0/1, 128.0.0.0/1, ::/0", conf);
+        Assert.Contains("AllowedIPs = 10.0.0.0/8, 0.0.0.0/1, 128.0.0.0/1, ::/1, 8000::/1", conf);
     }
 }

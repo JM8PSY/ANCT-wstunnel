@@ -97,6 +97,7 @@ public sealed class TunnelController
         lock (_gate)
         {
             _state.Disconnect();
+            _lastError = null; // a deliberate disconnect ends the failed attempt; _cleanupError stays
             ended = RetireCurrent();
         }
         ended?.Cancel();
@@ -182,7 +183,23 @@ public sealed class TunnelController
                 unreadable = true;
                 _log($"Recovery: state file is unreadable, cleaning what is known: {e.Message}");
             }
-            if (state == null && !unreadable) return;
+            if (state == null && !unreadable)
+            {
+                // The WireGuard tunnel service starts automatically at boot. Without a state file
+                // it may still be installed and, with wstunnel gone, would blackhole all traffic.
+                bool leftover;
+                try
+                {
+                    leftover = await _platform.TunnelExistsAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    _log($"Recovery: could not check for a leftover tunnel: {e.Message}");
+                    return;
+                }
+                if (!leftover) return;
+                _log("Recovery: removing a leftover tunnel service.");
+            }
 
             _log("Recovery: cleaning up after an unclean stop.");
             await CleanRecordedAsync(state ?? new RecoveryState(null, [])).ConfigureAwait(false);

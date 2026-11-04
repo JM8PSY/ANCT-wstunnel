@@ -386,6 +386,32 @@ public class TunnelControllerTests
     }
 
     [Fact]
+    public async Task Disconnect_clears_a_stale_connect_error()
+    {
+        _p.Fail("preflight");
+        var c = NewController();
+        await c.ConnectAsync();
+        await c.IdleAsync();
+        var failed = await c.GetStatusAsync();
+        Assert.Equal(TunnelState.Error, failed.State);
+        Assert.NotNull(failed.LastError);
+
+        var reply = await c.DisconnectAsync();
+
+        Assert.Equal(TunnelState.Disconnected, reply.State);
+        Assert.Null(reply.LastError);
+    }
+
+    [Fact]
+    public async Task Disconnect_keeps_the_cleanup_error()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall");
+        var reply = await c.DisconnectAsync();
+        Assert.Contains("Cleanup incomplete", reply.LastError);
+    }
+
+    [Fact]
     public async Task Retry_that_fails_again_keeps_state_and_error()
     {
         var c = await Connected();
@@ -919,7 +945,28 @@ public class TunnelControllerTests
     public async Task Recovery_without_a_state_file_touches_nothing()
     {
         await NewController().RecoverAsync();
-        Assert.Equal(new[] { "load-recovery" }, _p.Calls);
+        Assert.Equal(new[] { "load-recovery", "tunnel-exists" }, _p.Calls);
+    }
+
+    [Fact]
+    public async Task Recovery_without_a_state_file_removes_a_leftover_tunnel()
+    {
+        _p.TunnelExists = true;
+        var c = NewController();
+        await c.RecoverAsync();
+        Assert.Equal(new[] { "load-recovery", "tunnel-exists", "uninstall", "delete-conf", "clear-recovery" }, _p.Calls);
+        Assert.Null((await c.GetStatusAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task Failed_leftover_tunnel_removal_is_reported_and_stays_recoverable()
+    {
+        _p.TunnelExists = true;
+        _p.Fail("uninstall");
+        var c = NewController();
+        await c.RecoverAsync();
+        Assert.Contains("uninstall failed", (await c.GetStatusAsync()).LastError);
+        Assert.NotNull(_p.Recovery);
     }
 
     [Theory]

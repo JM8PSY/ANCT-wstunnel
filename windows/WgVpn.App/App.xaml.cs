@@ -49,7 +49,8 @@ public partial class App : System.Windows.Application
         _window = new MainWindow();
         _icons = new TrayIcons();
         BuildTray();
-        _window.Show();
+        // The logon autostart passes --tray: start in the tray only. A manual or post-install launch shows the window.
+        if (!e.Args.Contains("--tray")) _window.Show();
 
         _timer = new DispatcherTimer { Interval = PollInterval };
         _timer.Tick += async (_, _) => await PollAsync();
