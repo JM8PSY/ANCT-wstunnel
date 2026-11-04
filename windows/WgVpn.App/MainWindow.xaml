@@ -3,12 +3,28 @@
 <Window x:Class="WgVpn.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:WgVpn.App"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
-
+        Title="ANCT WireGuard VPN" Height="460" Width="460" MinHeight="380" MinWidth="380"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <ToggleButton x:Name="PowerToggle" Grid.Row="0" Height="64" FontSize="24" Content="ON / OFF"
+                      AutomationProperties.AutomationId="PowerToggle" Click="PowerToggle_Click"/>
+        <TextBlock x:Name="StatusText" Grid.Row="1" Margin="0,12,0,0" FontSize="18" FontWeight="SemiBold"
+                   TextWrapping="Wrap" AutomationProperties.AutomationId="StatusText"/>
+        <TextBlock x:Name="ServerText" Grid.Row="2" Margin="0,4,0,0" AutomationProperties.AutomationId="ServerText"/>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,8">
+            <Button x:Name="ImportButton" Content="設定ファイルを読み込む" Padding="12,4" Click="ImportButton_Click"
+                    AutomationProperties.AutomationId="ImportButton"/>
+            <Button x:Name="DisconnectButton" Content="切断" Padding="12,4" Margin="8,0,0,0" Visibility="Collapsed"
+                    Click="DisconnectButton_Click" AutomationProperties.AutomationId="DisconnectButton"/>
+        </StackPanel>
+        <TextBox x:Name="LogBox" Grid.Row="4" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
+                 TextWrapping="Wrap" FontFamily="Consolas" AutomationProperties.AutomationId="LogBox"/>
     </Grid>
 </Window>
