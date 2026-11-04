@@ -51,17 +51,24 @@ public sealed class PipeServer
                 catch (IOException e)
                 {
                     _logger.LogWarning("Pipe accept failed: {Error}", e.Message);
-                    await connected.DisposeAsync().ConfigureAwait(false);
-                    listener = await CreateInstanceWithRetryAsync(ct).ConfigureAwait(false);
+                    listener = await ReplaceThenDisposeAsync(connected, ct).ConfigureAwait(false);
                     continue;
                 }
 
-                // The next instance exists before this client can finish. If the name ever had no
-                // instance, another process could create one and impersonate the service.
-                listener = TryCreateInstance();
+                // The name must always have an instance of ours: with none, another process could
+                // create one, impersonate the service and receive the GUI's bundle import. So the
+                // replacement exists before this one can close, whichever way it ends.
+                try
+                {
+                    listener = await CreateInstanceWithRetryAsync(ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await connected.DisposeAsync().ConfigureAwait(false);
+                    throw;
+                }
                 clients.RemoveWhere(t => t.IsCompleted);
                 clients.Add(ServeClientAsync(connected, ct));
-                listener ??= await CreateInstanceWithRetryAsync(ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -72,6 +79,18 @@ public sealed class PipeServer
         {
             if (listener != null) await listener.DisposeAsync().ConfigureAwait(false);
             await Task.WhenAll(clients).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<NamedPipeServerStream> ReplaceThenDisposeAsync(NamedPipeServerStream failed, CancellationToken ct)
+    {
+        try
+        {
+            return await CreateInstanceWithRetryAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            await failed.DisposeAsync().ConfigureAwait(false);
         }
     }
 

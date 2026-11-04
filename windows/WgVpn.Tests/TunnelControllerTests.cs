@@ -153,7 +153,8 @@ public class TunnelControllerTests
         yield return Case("best-route " + Ip1, ["kill-wstunnel", "clear-recovery"]);
         yield return Case(Add1, ["kill-wstunnel", "clear-recovery"]);
         yield return Case("write-conf", ["kill-wstunnel", .. routes, "delete-conf", "clear-recovery"]);
-        yield return Case("uninstall", ["kill-wstunnel", .. routes, "delete-conf", "clear-recovery"]);
+        // The leftover uninstall may be interrupted part-way, so teardown repeats it.
+        yield return Case("uninstall", ["uninstall", "kill-wstunnel", .. routes, "delete-conf", "clear-recovery"]);
         yield return Case("install", ["uninstall", "kill-wstunnel", .. routes, "delete-conf", "clear-recovery"]);
         yield return Case("handshake", ["uninstall", "kill-wstunnel", .. routes, "delete-conf", "clear-recovery"]);
     }
@@ -316,23 +317,301 @@ public class TunnelControllerTests
 
     // ---- teardown ----
 
+    public static IEnumerable<object[]> TeardownFailureCases()
+    {
+        const string has1 = "has-route " + Ip1;
+        object[] Case(string failing, string[] expected) => [failing, expected];
+        // The conf is kept while the tunnel may still be installed.
+        yield return Case("uninstall", ["uninstall", "kill-wstunnel", Del1, Del2, "save-recovery"]);
+        yield return Case("kill-wstunnel", ["uninstall", "kill-wstunnel", Del1, Del2, "delete-conf", "save-recovery"]);
+        yield return Case(Del1, ["uninstall", "kill-wstunnel", Del1, has1, Del2, "delete-conf", "save-recovery"]);
+        yield return Case("delete-conf", ["uninstall", "kill-wstunnel", Del1, Del2, "delete-conf", "save-recovery"]);
+        yield return Case("clear-recovery", ["uninstall", "kill-wstunnel", Del1, Del2, "delete-conf", "clear-recovery", "save-recovery"]);
+    }
+
     [Theory]
-    [InlineData("uninstall")]
-    [InlineData("kill-wstunnel")]
-    [InlineData("route delete 192.0.2.1 mask 255.255.255.255")]
-    [InlineData("delete-conf")]
-    [InlineData("clear-recovery")]
-    public async Task Teardown_continues_after_a_step_throws(string failing)
+    [MemberData(nameof(TeardownFailureCases))]
+    public async Task Teardown_continues_after_a_step_throws_and_keeps_the_state(string failing, string[] expected)
     {
         var c = await Connected();
         var before = _p.Calls.Count;
         _p.Fail(failing);
         var reply = await c.DisconnectAsync();
         Assert.Equal(TunnelState.Disconnected, reply.State);
-        Assert.Equal(
-            new[] { "uninstall", "kill-wstunnel", Del1, Del2, "delete-conf", "clear-recovery" },
-            _p.Calls.Skip(before));
+        Assert.Contains($"{failing} failed", reply.LastError);
+        Assert.Equal(expected, _p.Calls.Skip(before));
+        Assert.NotNull(_p.Recovery);
         lock (_log) Assert.Contains(_log, m => m.Contains($"{failing} failed"));
+    }
+
+    [Fact]
+    public async Task Failed_teardown_records_only_what_still_needs_undoing()
+    {
+        var c = await Connected();
+        var pid = _p.Handles[0].ProcessId;
+        _p.Fail("kill-wstunnel");
+        _p.Fail(Del2);
+        await c.DisconnectAsync();
+        Assert.Equal(pid, _p.Recovery!.WstunnelPid);
+        Assert.Equal(new[] { Ip2 }, _p.Recovery.RouteIps);
+    }
+
+    [Fact]
+    public async Task Failed_uninstall_keeps_the_conf_and_records_nothing_else_as_left()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall");
+        await c.DisconnectAsync();
+        Assert.DoesNotContain("delete-conf", _p.Calls);
+        Assert.Null(_p.Recovery!.WstunnelPid);
+        Assert.Empty(_p.Recovery.RouteIps);
+    }
+
+    [Fact]
+    public async Task Second_Disconnect_retries_a_failed_teardown_and_clears_the_error()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall");
+        await c.DisconnectAsync();
+        var before = _p.Calls.Count;
+
+        var reply = await c.DisconnectAsync();
+
+        Assert.Equal(new[] { "uninstall", "delete-conf", "clear-recovery" }, _p.Calls.Skip(before));
+        Assert.Null(reply.LastError);
+        Assert.Null(_p.Recovery);
+        var after = _p.Calls.Count;
+        await c.DisconnectAsync();
+        Assert.Equal(after, _p.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Retry_that_fails_again_keeps_state_and_error()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall", times: 2);
+        await c.DisconnectAsync();
+        var reply = await c.DisconnectAsync();
+        Assert.Contains("uninstall failed", reply.LastError);
+        Assert.NotNull(_p.Recovery);
+        Assert.Null((await c.DisconnectAsync()).LastError);
+        Assert.Null(_p.Recovery);
+    }
+
+    [Fact]
+    public async Task Connect_retries_a_failed_teardown_before_its_own_steps()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall");
+        await c.DisconnectAsync();
+        var before = _p.Calls.Count;
+
+        await c.ConnectAsync();
+        await c.IdleAsync();
+
+        Assert.Equal(new[] { "uninstall", "delete-conf", "clear-recovery", "resolve" }, _p.Calls.Skip(before).Take(4));
+        var status = await c.GetStatusAsync();
+        Assert.Equal(TunnelState.Connected, status.State);
+        Assert.Null(status.LastError);
+    }
+
+    [Fact]
+    public async Task Connect_starts_nothing_when_the_retry_fails_again()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall", times: 2);
+        await c.DisconnectAsync();
+        var before = _p.Calls.Count;
+
+        await c.ConnectAsync();
+        await c.IdleAsync();
+
+        var status = await c.GetStatusAsync();
+        Assert.Equal(TunnelState.Error, status.State);
+        Assert.Contains("uninstall failed", status.LastError);
+        Assert.DoesNotContain("resolve", _p.Calls.Skip(before));
+        Assert.NotNull(_p.Recovery);
+        Assert.Single(_p.Handles);
+    }
+
+    [Fact]
+    public async Task Service_start_retries_from_the_kept_state()
+    {
+        var c = await Connected();
+        var pid = _p.Handles[0].ProcessId;
+        _p.Fail("uninstall");
+        _p.Fail("kill-wstunnel");
+        _p.Fail(Del1);
+        await c.DisconnectAsync();
+        _p.ProcessNames[pid] = "wstunnel";
+        var before = _p.Calls.Count;
+
+        var restarted = NewController();
+        await restarted.RecoverAsync();
+
+        Assert.Equal(
+            new[] { "load-recovery", "uninstall", "kill-pid " + pid, Del1, "delete-conf", "clear-recovery" },
+            _p.Calls.Skip(before));
+        Assert.Null(_p.Recovery);
+        Assert.Null((await restarted.GetStatusAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task Leftover_host_route_is_removed_before_a_later_Connect_adds_it()
+    {
+        var c = await Connected();
+        _p.Fail(Del1);
+        await c.DisconnectAsync();
+        Assert.Contains(Ip1, _p.HostRoutes);
+        var before = _p.Calls.Count;
+
+        await c.ConnectAsync();
+        await c.IdleAsync();
+
+        var calls = _p.Calls.Skip(before).ToList();
+        Assert.True(calls.IndexOf(Del1) < calls.IndexOf(Add1));
+        Assert.Equal(TunnelState.Connected, (await c.GetStatusAsync()).State);
+    }
+
+    [Fact]
+    public async Task Deleting_an_absent_route_is_not_a_failure()
+    {
+        _p.Recovery = new RecoveryState(null, [Ip1]);
+        var c = NewController();
+        await c.RecoverAsync();
+        Assert.Contains("has-route " + Ip1, _p.Calls);
+        Assert.Null(_p.Recovery);
+        Assert.Null((await c.GetStatusAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task Route_delete_that_cannot_be_verified_stays_recorded()
+    {
+        _p.Recovery = new RecoveryState(null, [Ip1]);
+        _p.Fail("has-route " + Ip1);
+        var c = NewController();
+        await c.RecoverAsync();
+        Assert.Equal(new[] { Ip1 }, _p.Recovery!.RouteIps);
+        Assert.Contains("has-route", (await c.GetStatusAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task Failed_recovery_is_reported_and_retried_by_the_next_Connect()
+    {
+        _p.Recovery = new RecoveryState(null, []);
+        _p.Fail("uninstall");
+        var c = NewController();
+        await c.RecoverAsync();
+        Assert.Contains("uninstall failed", (await c.GetStatusAsync()).LastError);
+        Assert.NotNull(_p.Recovery);
+
+        await c.ConnectAsync();
+        await c.IdleAsync();
+        var status = await c.GetStatusAsync();
+        Assert.Equal(TunnelState.Connected, status.State);
+        Assert.Null(status.LastError);
+    }
+
+    [Fact]
+    public async Task Failed_teardown_after_a_wstunnel_exit_reports_both()
+    {
+        var c = await Connected();
+        _p.Fail("uninstall");
+        _p.Handles[0].Exit(42);
+        await c.IdleAsync();
+        var status = await c.GetStatusAsync();
+        Assert.Equal(TunnelState.Error, status.State);
+        Assert.Contains("42", status.LastError);
+        Assert.Contains("uninstall failed", status.LastError);
+        Assert.NotNull(_p.Recovery);
+    }
+
+    // ---- route add interrupted in flight ----
+
+    [Fact]
+    public async Task Disconnect_during_a_route_add_removes_the_committed_route()
+    {
+        _p.Hold(Add1);
+        var c = NewController();
+        await c.ConnectAsync();
+        await _p.Reached(Add1);
+        var reply = await c.DisconnectAsync();
+        Assert.Contains(Del1, _p.Calls);
+        Assert.Empty(_p.HostRoutes);
+        Assert.Null(reply.LastError);
+        Assert.Null(_p.Recovery);
+    }
+
+    [Fact]
+    public async Task Wstunnel_exit_during_a_route_add_removes_the_committed_route()
+    {
+        _p.Hold(Add1);
+        var c = NewController();
+        await c.ConnectAsync();
+        await _p.Reached(Add1);
+        _p.Handles[0].Exit(5);
+        await c.IdleAsync();
+        Assert.Empty(_p.HostRoutes);
+        Assert.Null(_p.Recovery);
+    }
+
+    [Fact]
+    public async Task Tool_limit_on_a_route_add_that_committed_removes_the_route()
+    {
+        _p.FailWithToolLimit(Add1);
+        var c = NewController();
+        await c.ConnectAsync();
+        await c.IdleAsync();
+        Assert.Equal(TunnelState.Error, (await c.GetStatusAsync()).State);
+        Assert.Contains(Del1, _p.Calls);
+        Assert.Empty(_p.HostRoutes);
+        Assert.Null(_p.Recovery);
+    }
+
+    [Fact]
+    public async Task Interrupted_route_add_that_never_committed_cleans_up_without_a_cleanup_error()
+    {
+        _p.RouteAddCommitsInFlight = false;
+        _p.Hold(Add1);
+        var c = NewController();
+        await c.ConnectAsync();
+        await _p.Reached(Add1);
+        var reply = await c.DisconnectAsync();
+        Assert.Contains(Del1, _p.Calls);
+        Assert.Contains("has-route " + Ip1, _p.Calls);
+        Assert.Null(reply.LastError);
+        Assert.Null(_p.Recovery);
+    }
+
+    [Fact]
+    public async Task Non_zero_route_add_is_known_not_added_and_is_not_deleted()
+    {
+        _p.Fail(Add1);
+        var c = NewController();
+        await c.ConnectAsync();
+        await c.IdleAsync();
+        Assert.DoesNotContain(Del1, _p.Calls);
+        Assert.Null(_p.Recovery);
+    }
+
+    // ---- a workflow retired before it holds anything ----
+
+    [Fact]
+    public async Task Racing_Disconnect_never_leaks_what_a_workflow_starts()
+    {
+        var c = NewController();
+        for (var i = 0; i < 300; i++)
+        {
+            var connect = Task.Run(c.ConnectAsync);
+            var disconnect = Task.Run(c.DisconnectAsync);
+            await Task.WhenAll(connect, disconnect);
+        }
+        await c.DisconnectAsync();
+        await c.IdleAsync();
+        Assert.All(_p.Handles, h => Assert.True(h.Killed));
+        Assert.Empty(_p.HostRoutes);
+        Assert.Null(_p.Recovery);
+        Assert.Equal(TunnelState.Disconnected, (await c.GetStatusAsync()).State);
     }
 
     [Fact]
@@ -460,7 +739,7 @@ public class TunnelControllerTests
     public static TheoryData<string> HoldableSteps() => new()
     {
         "resolve", "preflight", "save-recovery", "start-wstunnel", "wait-udp", "best-route " + Ip1,
-        "write-conf", "install", "handshake",
+        Add1, "write-conf", "uninstall", "install", "handshake",
     };
 
     [Theory]
@@ -627,6 +906,7 @@ public class TunnelControllerTests
     public async Task Recovery_cleans_up_what_the_state_file_records()
     {
         _p.Recovery = new RecoveryState(555, [Ip1, Ip2]);
+        _p.HostRoutes.UnionWith([Ip1, Ip2]);
         _p.ProcessNames[555] = "wstunnel";
         await NewController().RecoverAsync();
         Assert.Equal(new[]
@@ -666,13 +946,28 @@ public class TunnelControllerTests
     public async Task Recovery_continues_after_a_step_throws()
     {
         _p.Recovery = new RecoveryState(555, [Ip1]);
+        _p.HostRoutes.Add(Ip1);
         _p.ProcessNames[555] = "wstunnel";
         _p.Fail("uninstall");
         await NewController().RecoverAsync();
-        Assert.Equal(new[]
-        {
-            "load-recovery", "uninstall", "kill-pid 555", Del1, "delete-conf", "clear-recovery",
-        }, _p.Calls);
+        Assert.Equal(new[] { "load-recovery", "uninstall", "kill-pid 555", Del1, "save-recovery" }, _p.Calls);
+    }
+
+    [Fact]
+    public async Task Recovery_survives_a_process_exiting_during_the_name_lookup()
+    {
+        _p.Recovery = new RecoveryState(555, [Ip1]);
+        _p.HostRoutes.Add(Ip1);
+        _p.ProcessNameThrows = true;
+        var c = NewController();
+        await c.RecoverAsync();
+        Assert.Contains(Del1, _p.Calls);
+        Assert.Equal(555, _p.Recovery!.WstunnelPid);
+
+        _p.ProcessNameThrows = false;
+        await c.DisconnectAsync();
+        Assert.Null(_p.Recovery);
+        Assert.DoesNotContain("kill-pid 555", _p.Calls);
     }
 
     [Fact]
@@ -768,11 +1063,39 @@ public class TunnelControllerTests
     [Fact]
     public async Task Status_ServerHost_comes_from_the_stored_bundle()
     {
-        var c = NewController();
-        Assert.Equal("vpn.example", (await c.GetStatusAsync()).ServerHost);
+        Assert.Equal("vpn.example", (await NewController().GetStatusAsync()).ServerHost);
         _p.BundleJson = null;
-        Assert.Null((await c.GetStatusAsync()).ServerHost);
+        Assert.Null((await NewController().GetStatusAsync()).ServerHost);
         _p.BundleJson = "not json";
+        Assert.Null((await NewController().GetStatusAsync()).ServerHost);
+    }
+
+    [Fact]
+    public async Task Status_polling_reads_the_bundle_file_once()
+    {
+        var c = NewController();
+        for (var i = 0; i < 5; i++) await c.GetStatusAsync();
+        Assert.Equal(1, _p.BundleLoads);
+    }
+
+    [Fact]
+    public async Task Import_updates_the_cached_ServerHost()
+    {
+        _p.BundleJson = null;
+        var c = NewController();
         Assert.Null((await c.GetStatusAsync()).ServerHost);
+        await c.ImportBundleAsync(ValidBundleJson);
+        var loads = _p.BundleLoads;
+        Assert.Equal("vpn.example", (await c.GetStatusAsync()).ServerHost);
+        Assert.Equal(loads, _p.BundleLoads);
+    }
+
+    [Fact]
+    public async Task Rejected_import_leaves_the_cached_ServerHost()
+    {
+        var c = NewController();
+        await c.GetStatusAsync();
+        await c.ImportBundleAsync("{\"version\":2}");
+        Assert.Equal("vpn.example", (await c.GetStatusAsync()).ServerHost);
     }
 }

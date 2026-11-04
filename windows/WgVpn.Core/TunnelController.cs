@@ -41,8 +41,14 @@ public sealed class TunnelController
     private readonly HashSet<Task> _background = [];
     private Session? _current;
     private string? _lastError;
+    private string? _cleanupError;
+    private bool _serverHostKnown;
+    private string? _serverHost;
 
     private readonly SemaphoreSlim _opLock = new(1, 1);
+
+    // What a failed cleanup left to undo, mirroring the kept state file. Guarded by the op lock.
+    private RecoveryState? _pendingCleanup;
 
     public TunnelController(ITunnelPlatform platform, TunnelTimeouts timeouts, Action<string>? log = null)
     {
@@ -63,7 +69,7 @@ public sealed class TunnelController
         public IWstunnelHandle? Wstunnel;
         public readonly List<string> AddedRoutes = [];
         public bool ConfWritten;
-        public bool TunnelInstallAttempted;
+        public bool TunnelTouched;
     }
 
     // ---- requests ----
@@ -84,7 +90,7 @@ public sealed class TunnelController
         return GetStatusAsync();
     }
 
-    /// <summary>Works in any state. Completes after teardown.</summary>
+    /// <summary>Works in any state, and retries a cleanup that failed earlier. Completes after teardown.</summary>
     public async Task<StatusReply> DisconnectAsync()
     {
         Session? ended;
@@ -94,22 +100,39 @@ public sealed class TunnelController
             ended = RetireCurrent();
         }
         ended?.Cancel();
-        await DrainRetiredUnderOpLockAsync().ConfigureAwait(false);
+
+        await _opLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await RetryPendingCleanupAsync().ConfigureAwait(false);
+            await DrainRetiredAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _opLock.Release();
+        }
         return await GetStatusAsync().ConfigureAwait(false);
     }
 
     public async Task<StatusReply> GetStatusAsync()
     {
-        var serverHost = await TryReadServerHostAsync().ConfigureAwait(false);
-        lock (_gate) return new StatusReply(_state.State, serverHost, _lastError);
+        var serverHost = await GetServerHostAsync().ConfigureAwait(false);
+        lock (_gate)
+        {
+            var error = _lastError != null && _cleanupError != null
+                ? $"{_lastError} {_cleanupError}"
+                : _lastError ?? _cleanupError;
+            return new StatusReply(_state.State, serverHost, error);
+        }
     }
 
     public async Task<ImportBundleReply> ImportBundleAsync(string bundleJson)
     {
         if (IsActive()) return new ImportBundleReply(false, DisconnectFirst);
+        ConnectionBundle parsed;
         try
         {
-            BundleParser.Parse(bundleJson);
+            parsed = BundleParser.Parse(bundleJson);
         }
         catch (BundleFormatException e)
         {
@@ -122,6 +145,11 @@ public sealed class TunnelController
             // A Connect may have started while waiting. Any Connect after this check blocks on the op lock.
             if (IsActive()) return new ImportBundleReply(false, DisconnectFirst);
             await _platform.SaveBundleAsync(bundleJson, CancellationToken.None).ConfigureAwait(false);
+            lock (_gate)
+            {
+                _serverHost = parsed.Server.Host;
+                _serverHostKnown = true;
+            }
             return new ImportBundleReply(true, null);
         }
         catch (Exception e)
@@ -135,9 +163,11 @@ public sealed class TunnelController
         }
     }
 
-    /// <summary>Cleans up after a crashed service. Call once at service start.</summary>
+    /// <summary>Cleans up after a crash or a failed cleanup. Call once at service start, before serving requests.</summary>
     public async Task RecoverAsync()
     {
+        await GetServerHostAsync().ConfigureAwait(false); // caches it, so polling never reads the bundle file
+
         await _opLock.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -155,16 +185,7 @@ public sealed class TunnelController
             if (state == null && !unreadable) return;
 
             _log("Recovery: cleaning up after an unclean stop.");
-            await AttemptAsync("uninstall tunnel", () => _platform.UninstallTunnelAsync(CancellationToken.None)).ConfigureAwait(false);
-            if (state?.WstunnelPid is int pid)
-            {
-                var name = _platform.GetProcessName(pid);
-                if (string.Equals(name, "wstunnel", StringComparison.OrdinalIgnoreCase))
-                    await AttemptAsync("kill wstunnel", () => _platform.KillProcessAsync(pid)).ConfigureAwait(false);
-            }
-            await RemoveRoutesAsync(state?.RouteIps ?? []).ConfigureAwait(false);
-            await AttemptAsync("delete conf", _platform.DeleteConfAsync).ConfigureAwait(false);
-            await AttemptAsync("clear recovery state", _platform.ClearRecoveryStateAsync).ConfigureAwait(false);
+            await CleanRecordedAsync(state ?? new RecoveryState(null, [])).ConfigureAwait(false);
         }
         finally
         {
@@ -208,6 +229,18 @@ public sealed class TunnelController
         try
         {
             await DrainRetiredAsync().ConfigureAwait(false);
+
+            // A Disconnect retires before it cancels. If this session was retired in that gap, the
+            // drain above just consumed it, and nothing would tear down what its steps start.
+            lock (_gate)
+            {
+                if (_current != session) return;
+            }
+
+            await RetryPendingCleanupAsync().ConfigureAwait(false);
+            if (_pendingCleanup != null)
+                throw new TunnelException("Cannot connect until the previous cleanup succeeds.");
+
             await ConnectStepsAsync(session).ConfigureAwait(false);
         }
         catch (Exception e)
@@ -256,8 +289,8 @@ public sealed class TunnelController
 
         s.ConfWritten = true;
         await _platform.WriteConfAsync(WireguardConf.Render(bundle), ct).ConfigureAwait(false);
+        s.TunnelTouched = true;
         await _platform.UninstallTunnelAsync(ct).ConfigureAwait(false); // leftover from an earlier run
-        s.TunnelInstallAttempted = true;
         await _platform.InstallTunnelAsync(ct).ConfigureAwait(false);
 
         await WithTimeoutAsync(s, _timeouts.Handshake, "WireGuard handshake timed out", async t =>
@@ -283,8 +316,20 @@ public sealed class TunnelController
             await _platform.SaveRecoveryStateAsync(
                 new RecoveryState(s.Wstunnel?.ProcessId, [.. s.AddedRoutes, ip]), ct).ConfigureAwait(false);
             var add = ProxyRoute.BuildAdd([ip], route.NextHop, route.IfIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            await _platform.RunProcessAsync(add[0], ct).ConfigureAwait(false);
+
+            // Recorded first: a cancel or timeout may land after route.exe has committed the route.
+            // Only a clean non-zero exit proves it did not, and a route that was already there
+            // (not ours to delete) is reported that way too.
             s.AddedRoutes.Add(ip);
+            try
+            {
+                await _platform.RunProcessAsync(add[0], ct).ConfigureAwait(false);
+            }
+            catch (ProcessFailedException)
+            {
+                s.AddedRoutes.Remove(ip);
+                throw;
+            }
         }
     }
 
@@ -393,38 +438,135 @@ public sealed class TunnelController
         }
     }
 
-    /// <summary>Reverses setup, undoing only what this session started. Every step is attempted.</summary>
+    /// <summary>
+    /// Reverses setup, undoing only what this session started. Every step is attempted, except
+    /// that the conf stays while the tunnel may still be installed: its service reads that file.
+    /// </summary>
     private async Task TeardownAsync(Session s)
     {
-        if (s.TunnelInstallAttempted)
-            await AttemptAsync("uninstall tunnel", () => _platform.UninstallTunnelAsync(CancellationToken.None)).ConfigureAwait(false);
+        if (!s.RecoveryStarted) return; // nothing is started before the first recovery save
+
+        var failures = new List<string>();
+        var tunnelGone = !s.TunnelTouched || await AttemptAsync(failures, "uninstall tunnel",
+            () => _platform.UninstallTunnelAsync(CancellationToken.None)).ConfigureAwait(false);
+
+        int? pidLeft = null;
         if (s.Wstunnel is { } handle)
         {
-            await AttemptAsync("kill wstunnel", handle.KillAndWaitAsync).ConfigureAwait(false);
-            await AttemptAsync("release wstunnel handle", () => { handle.Dispose(); return Task.CompletedTask; }).ConfigureAwait(false);
+            if (!await AttemptAsync(failures, "kill wstunnel", handle.KillAndWaitAsync).ConfigureAwait(false))
+                pidLeft = handle.ProcessId;
+            try
+            {
+                handle.Dispose();
+            }
+            catch (Exception e)
+            {
+                _log($"Cleanup: release wstunnel handle: {e.Message}"); // the process state is unaffected
+            }
         }
-        await RemoveRoutesAsync(s.AddedRoutes).ConfigureAwait(false);
-        if (s.ConfWritten)
-            await AttemptAsync("delete conf", _platform.DeleteConfAsync).ConfigureAwait(false);
-        if (s.RecoveryStarted)
-            await AttemptAsync("clear recovery state", _platform.ClearRecoveryStateAsync).ConfigureAwait(false);
+
+        var routesLeft = await RemoveRoutesAsync(failures, s.AddedRoutes).ConfigureAwait(false);
+        if (s.ConfWritten && tunnelGone)
+            await AttemptAsync(failures, "delete conf", _platform.DeleteConfAsync).ConfigureAwait(false);
+
+        await FinishCleanupAsync(failures, pidLeft, routesLeft).ConfigureAwait(false);
     }
 
-    private async Task RemoveRoutesAsync(IReadOnlyList<string> ips)
+    /// <summary>Caller holds the op lock.</summary>
+    private async Task RetryPendingCleanupAsync()
     {
-        foreach (var spec in ProxyRoute.BuildRemove(ips))
-            await AttemptAsync("remove route", () => _platform.RunProcessAsync(spec, CancellationToken.None)).ConfigureAwait(false);
+        if (_pendingCleanup is { } pending)
+            await CleanRecordedAsync(pending).ConfigureAwait(false);
     }
 
-    private async Task AttemptAsync(string what, Func<Task> step)
+    /// <summary>
+    /// Cleans from a recovery state alone: after a crash, or to retry a failed cleanup. The tunnel
+    /// and conf are not recorded because the state's existence implies them; both calls tolerate absence.
+    /// </summary>
+    private async Task CleanRecordedAsync(RecoveryState state)
+    {
+        var failures = new List<string>();
+        var tunnelGone = await AttemptAsync(failures, "uninstall tunnel",
+            () => _platform.UninstallTunnelAsync(CancellationToken.None)).ConfigureAwait(false);
+
+        var pidLeft = state.WstunnelPid;
+        if (state.WstunnelPid is int pid
+            && await AttemptAsync(failures, "kill wstunnel", () => KillIfWstunnelAsync(pid)).ConfigureAwait(false))
+        {
+            pidLeft = null;
+        }
+
+        var routesLeft = await RemoveRoutesAsync(failures, state.RouteIps ?? []).ConfigureAwait(false);
+        if (tunnelGone)
+            await AttemptAsync(failures, "delete conf", _platform.DeleteConfAsync).ConfigureAwait(false);
+
+        await FinishCleanupAsync(failures, pidLeft, routesLeft).ConfigureAwait(false);
+    }
+
+    /// <summary>Only a clean run drops the state file. Otherwise it shrinks to what still needs undoing.</summary>
+    private async Task FinishCleanupAsync(List<string> failures, int? pidLeft, IReadOnlyList<string> routesLeft)
+    {
+        if (failures.Count == 0
+            && await AttemptAsync(failures, "clear recovery state", _platform.ClearRecoveryStateAsync).ConfigureAwait(false))
+        {
+            _pendingCleanup = null;
+            lock (_gate) _cleanupError = null;
+            return;
+        }
+
+        var left = new RecoveryState(pidLeft, routesLeft);
+        _pendingCleanup = left;
+        await AttemptAsync(failures, "save recovery state",
+            () => _platform.SaveRecoveryStateAsync(left, CancellationToken.None)).ConfigureAwait(false);
+        lock (_gate) _cleanupError = "Cleanup incomplete, disconnect again to retry: " + string.Join("; ", failures);
+    }
+
+    private Task KillIfWstunnelAsync(int pid)
+    {
+        var name = _platform.GetProcessName(pid);
+        return string.Equals(name, "wstunnel", StringComparison.OrdinalIgnoreCase)
+            ? _platform.KillProcessAsync(pid)
+            : Task.CompletedTask;
+    }
+
+    /// <returns>The IPs whose route may still be present.</returns>
+    private async Task<List<string>> RemoveRoutesAsync(List<string> failures, IReadOnlyList<string> ips)
+    {
+        var left = new List<string>();
+        foreach (var ip in ips)
+        {
+            if (!await AttemptAsync(failures, $"remove route {ip}", () => RemoveRouteAsync(ip)).ConfigureAwait(false))
+                left.Add(ip);
+        }
+        return left;
+    }
+
+    /// <summary>Deleting an absent route exits non-zero; that must not stay recorded forever.</summary>
+    private async Task RemoveRouteAsync(string ip)
+    {
+        try
+        {
+            await _platform.RunProcessAsync(ProxyRoute.BuildRemove([ip])[0], CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            if (await _platform.HasHostRouteAsync(ip, CancellationToken.None).ConfigureAwait(false)) throw;
+            _log($"Cleanup: route {ip} was already gone: {e.Message}");
+        }
+    }
+
+    private async Task<bool> AttemptAsync(List<string> failures, string what, Func<Task> step)
     {
         try
         {
             await step().ConfigureAwait(false);
+            return true;
         }
         catch (Exception e)
         {
-            _log($"Teardown: {what}: {e.Message}");
+            _log($"Cleanup: {what}: {e.Message}");
+            failures.Add($"{what}: {e.Message}");
+            return false;
         }
     }
 
@@ -435,17 +577,43 @@ public sealed class TunnelController
         lock (_gate) return _state.State is TunnelState.Connecting or TunnelState.Connected;
     }
 
-    private async Task<string?> TryReadServerHostAsync()
+    /// <summary>
+    /// Read from disk once, then kept in memory and updated by imports: status is polled, and each
+    /// read would reopen the private-key file and could block an import's atomic replace.
+    /// </summary>
+    private async Task<string?> GetServerHostAsync()
     {
+        lock (_gate)
+        {
+            if (_serverHostKnown) return _serverHost;
+        }
+
+        string? host;
         try
         {
             var json = await _platform.LoadBundleAsync(CancellationToken.None).ConfigureAwait(false);
-            return json == null ? null : BundleParser.Parse(json).Server.Host;
+            host = json == null ? null : BundleParser.Parse(json).Server.Host;
+        }
+        catch (BundleFormatException e)
+        {
+            _log($"The stored bundle is invalid: {e.Message}");
+            host = null; // stays invalid until an import replaces it
         }
         catch (Exception e)
         {
             _log($"Could not read the stored bundle: {e.Message}");
-            return null;
+            return null; // possibly transient: the next poll tries again
+        }
+
+        lock (_gate)
+        {
+            // An import that finished during the read is newer than what was read.
+            if (!_serverHostKnown)
+            {
+                _serverHost = host;
+                _serverHostKnown = true;
+            }
+            return _serverHost;
         }
     }
 

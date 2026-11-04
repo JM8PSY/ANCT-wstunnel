@@ -71,9 +71,24 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
                 PropagationFlags.None, AccessControlType.Allow));
         }
 
+        // Anyone may plant a junction here. Following it would make SYSTEM rewrite the DACL of the
+        // target and write secrets into it, so refuse to start. File.GetAttributes reports the
+        // link itself, including one whose target is gone.
         var dir = new DirectoryInfo(_dataDir);
-        if (dir.Exists) dir.SetAccessControl(security);
-        else dir.Create(security);
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(_dataDir);
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        {
+            dir.Create(security);
+            return;
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException($"Refusing to use {_dataDir}: it is a reparse point, not a real folder.");
+        dir.SetAccessControl(security);
     }
 
     // ---- network ----
@@ -143,13 +158,26 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
     public Task<BestRoute> GetBestRouteAsync(string destination, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var dest = BitConverter.ToUInt32(IPAddress.Parse(destination).GetAddressBytes());
+        var row = QueryBestRoute(destination, out _);
+        var nextHop = new IPAddress(BitConverter.GetBytes(row.dwForwardNextHop)).ToString();
+        return Task.FromResult(new BestRoute(nextHop, (int)row.dwForwardIfIndex, row.dwForwardType == NativeMethods.ForwardTypeDirect));
+    }
+
+    public Task<bool> HasHostRouteAsync(string destination, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        // Longest prefix wins, so a /32 for this destination is what GetBestRoute would return.
+        var row = QueryBestRoute(destination, out var dest);
+        return Task.FromResult(row.dwForwardDest == dest && row.dwForwardMask == uint.MaxValue);
+    }
+
+    private static NativeMethods.MibIpForwardRow QueryBestRoute(string destination, out uint dest)
+    {
+        dest = BitConverter.ToUInt32(IPAddress.Parse(destination).GetAddressBytes());
         var error = NativeMethods.GetBestRoute(dest, 0, out var row);
         if (error != 0)
             throw new TunnelException($"No route to the proxy address {destination}: {new Win32Exception(error).Message}");
-
-        var nextHop = new IPAddress(BitConverter.GetBytes(row.dwForwardNextHop)).ToString();
-        return Task.FromResult(new BestRoute(nextHop, (int)row.dwForwardIfIndex, row.dwForwardType == NativeMethods.ForwardTypeDirect));
+        return row;
     }
 
     private static class NativeMethods
@@ -276,7 +304,7 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
         if (spec.FileName != "route") throw new TunnelException($"Unexpected command: {spec.FileName}");
         var result = await RunCapturedAsync(Path.Combine(Environment.SystemDirectory, "route.exe"), spec.Args, ct).ConfigureAwait(false);
         if (result.ExitCode != 0)
-            throw new TunnelException($"route {spec.Args[0]} {spec.Args[1]} failed with exit code {result.ExitCode}: {result.Output.Trim()}");
+            throw new ProcessFailedException($"route {spec.Args[0]} {spec.Args[1]} failed with exit code {result.ExitCode}: {result.Output.Trim()}");
     }
 
     public async Task InstallTunnelAsync(CancellationToken ct)
@@ -448,9 +476,9 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
             using var process = Process.GetProcessById(pid);
             return process.ProcessName;
         }
-        catch (ArgumentException)
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
         {
-            return null;
+            return null; // no such process, or it exited during the lookup
         }
     }
 

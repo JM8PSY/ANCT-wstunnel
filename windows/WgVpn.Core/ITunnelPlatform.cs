@@ -49,7 +49,11 @@ public interface ITunnelPlatform
 
     Task<BestRoute> GetBestRouteAsync(string destination, CancellationToken ct);
 
-    /// <exception cref="TunnelException">The process could not start or exited non-zero.</exception>
+    /// <summary>True when the routing table holds a /32 route for this destination.</summary>
+    Task<bool> HasHostRouteAsync(string destination, CancellationToken ct);
+
+    /// <exception cref="ProcessFailedException">The process ran and exited non-zero.</exception>
+    /// <exception cref="TunnelException">The process could not start or did not finish in time.</exception>
     Task RunProcessAsync(ProcessSpec spec, CancellationToken ct);
 
     Task WriteConfAsync(string content, CancellationToken ct);

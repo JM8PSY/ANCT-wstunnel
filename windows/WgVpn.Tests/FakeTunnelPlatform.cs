@@ -28,7 +28,18 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
     private readonly Dictionary<string, TaskCompletionSource> _holds = [];
     private readonly Dictionary<string, TaskCompletionSource> _stubbornHolds = [];
     private readonly Dictionary<string, TaskCompletionSource> _reached = [];
+    private readonly HashSet<string> _usedHolds = [];
+    private readonly HashSet<string> _toolLimits = [];
     private int _nextPid = 1000;
+
+    /// <summary>The real routing table: what route.exe has committed.</summary>
+    public HashSet<string> HostRoutes = [];
+
+    /// <summary>When a route add is interrupted, whether route.exe had already committed it.</summary>
+    public bool RouteAddCommitsInFlight = true;
+
+    public int BundleLoads;
+    public bool ProcessNameThrows;
 
     public string? BundleJson = ValidBundleJson;
     public IReadOnlyList<string> Ips = [Ip1, Ip2];
@@ -55,8 +66,25 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
 
     public void Fail(string step, int times = 1) { lock (_gate) _failures[step] = times; }
 
-    /// <summary>Holds the step until released; the hold observes cancellation.</summary>
-    public void Hold(string step) { lock (_gate) _holds[step] = NewTcs(); }
+    /// <summary>The tool does not finish in time, so the platform cannot say whether it took effect.</summary>
+    public void FailWithToolLimit(string step)
+    {
+        lock (_gate)
+        {
+            _failures[step] = 1;
+            _toolLimits.Add(step);
+        }
+    }
+
+    /// <summary>Holds the next call of the step until released; the hold observes cancellation.</summary>
+    public void Hold(string step)
+    {
+        lock (_gate)
+        {
+            _holds[step] = NewTcs();
+            _usedHolds.Remove(step);
+        }
+    }
 
     public void Release(string step) { lock (_gate) _holds[step].TrySetResult(); }
 
@@ -86,7 +114,7 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
         {
             _calls.Add(step);
             if (_reached.TryGetValue(step, out var r)) r.TrySetResult();
-            if (_holds.TryGetValue(step, out var h)) hold = h.Task;
+            if (_holds.TryGetValue(step, out var h) && _usedHolds.Add(step)) hold = h.Task;
             if (_stubbornHolds.TryGetValue(step, out var s)) stubborn = s.Task;
             if (_failures.TryGetValue(step, out var n) && n > 0)
             {
@@ -134,8 +162,46 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
         return Route(destination);
     }
 
-    public Task RunProcessAsync(ProcessSpec spec, CancellationToken ct) =>
-        Hit(spec.FileName + " " + string.Join(' ', spec.Args), ct);
+    public async Task<bool> HasHostRouteAsync(string destination, CancellationToken ct)
+    {
+        await Hit("has-route " + destination, ct);
+        lock (_gate) return HostRoutes.Contains(destination);
+    }
+
+    /// <summary>Models route.exe: a failed step exits non-zero, deleting an absent route exits non-zero.</summary>
+    public async Task RunProcessAsync(ProcessSpec spec, CancellationToken ct)
+    {
+        var step = spec.FileName + " " + string.Join(' ', spec.Args);
+        var ip = spec.Args[1];
+        var isAdd = spec.Args[0] == "add";
+        try
+        {
+            await Hit(step, ct);
+        }
+        catch (TunnelException e)
+        {
+            lock (_gate)
+            {
+                if (!_toolLimits.Remove(step)) throw new ProcessFailedException(e.Message);
+                if (isAdd && RouteAddCommitsInFlight) HostRoutes.Add(ip);
+            }
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_gate)
+            {
+                if (isAdd && RouteAddCommitsInFlight) HostRoutes.Add(ip);
+            }
+            throw;
+        }
+
+        lock (_gate)
+        {
+            if (isAdd) HostRoutes.Add(ip);
+            else if (!HostRoutes.Remove(ip)) throw new ProcessFailedException($"route delete {ip}: element not found");
+        }
+    }
 
     public async Task WriteConfAsync(string content, CancellationToken ct)
     {
@@ -173,13 +239,18 @@ internal sealed class FakeTunnelPlatform : ITunnelPlatform
         Recovery = null;
     }
 
-    public string? GetProcessName(int pid) => ProcessNames.GetValueOrDefault(pid);
+    public string? GetProcessName(int pid)
+    {
+        if (ProcessNameThrows) throw new InvalidOperationException("process has exited");
+        return ProcessNames.GetValueOrDefault(pid);
+    }
     public Task KillProcessAsync(int pid) => Hit("kill-pid " + pid);
 
     public async Task<string?> LoadBundleAsync(CancellationToken ct)
     {
         await Task.CompletedTask;
         ct.ThrowIfCancellationRequested();
+        Interlocked.Increment(ref BundleLoads);
         return BundleJson;
     }
 
