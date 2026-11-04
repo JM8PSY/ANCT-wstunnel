@@ -24,4 +24,8 @@
     <ProjectReference Include="..\WgVpn.Core\WgVpn.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

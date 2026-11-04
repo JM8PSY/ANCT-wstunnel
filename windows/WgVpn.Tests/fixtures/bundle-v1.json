@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "server": {
+    "host": "example.ddns.net",
+    "port": 443,
+    "tlsSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "proxy": { "host": "websec.asahikawa-nct.ac.jp", "port": 8080 },
+  "wstunnel": { "localUdpPort": 51820, "remoteTarget": "localhost:51820" },
+  "wireguard": {
+    "privateKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "serverPublicKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+    "address": "10.88.0.2/32",
+    "allowedIps": "0.0.0.0/0",
+    "dns": "1.1.1.1",
+    "mtu": 1280,
+    "persistentKeepalive": 25
+  }
+}
