@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WgVpn.Core", "WgVpn.Core\WgVpn.Core.csproj", "{02CB80AD-8418-452E-8B54-47BBDB276815}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WgVpn.Service", "WgVpn.Service\WgVpn.Service.csproj", "{ABEFDC9C-58C0-4734-B22C-79EA77C332CD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WgVpn.App", "WgVpn.App\WgVpn.App.csproj", "{2DCF5E81-EFCD-43F7-9B18-0B0702D4B195}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WgVpn.Tests", "WgVpn.Tests\WgVpn.Tests.csproj", "{75705FD6-3AD0-4527-A84D-14CE9FB9C06F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{02CB80AD-8418-452E-8B54-47BBDB276815}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{02CB80AD-8418-452E-8B54-47BBDB276815}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{02CB80AD-8418-452E-8B54-47BBDB276815}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{02CB80AD-8418-452E-8B54-47BBDB276815}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ABEFDC9C-58C0-4734-B22C-79EA77C332CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ABEFDC9C-58C0-4734-B22C-79EA77C332CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ABEFDC9C-58C0-4734-B22C-79EA77C332CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ABEFDC9C-58C0-4734-B22C-79EA77C332CD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2DCF5E81-EFCD-43F7-9B18-0B0702D4B195}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2DCF5E81-EFCD-43F7-9B18-0B0702D4B195}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2DCF5E81-EFCD-43F7-9B18-0B0702D4B195}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2DCF5E81-EFCD-43F7-9B18-0B0702D4B195}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75705FD6-3AD0-4527-A84D-14CE9FB9C06F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75705FD6-3AD0-4527-A84D-14CE9FB9C06F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75705FD6-3AD0-4527-A84D-14CE9FB9C06F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75705FD6-3AD0-4527-A84D-14CE9FB9C06F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
