@@ -28,7 +28,9 @@ VPS側（`vps/`）が生成する接続バンドル(JSON)を読み込み、ON/OF
      所有者が SYSTEM/Administrators でない場合は、安全のためインストールを中止します
    - サービス `WgVpnService` を LocalSystem・自動起動で登録して開始（異常終了時は自動再起動）
    - 全ユーザーのログオン時に GUI を自動起動（HKLM の Run キー）
-4. 完了画面の「起動」で GUI を開きます（非管理者で起動します）。以後、ON/OFF に UAC は出ません。
+4. 完了画面の「ANCT WireGuard VPN を実行する」にチェックを入れたまま完了すると GUI が開きます（非管理者で起動します）。
+   以後、ON/OFF に UAC は出ません。サービスの登録・起動に失敗した場合はエラーが表示され、GUI は起動しません。
+   その場合はもう一度インストーラを実行してください。
 
 ### SmartScreen の警告
 
@@ -45,10 +47,13 @@ reputation" としてブロックされました。SAC により実行がブロ�
 - SAC の状態は PowerShell で確認できます: `(Get-MpComputerStatus).SmartAppControlState`
 - この設定を変更するかどうかは、そのPCの所有者が判断することです。このドキュメントでは回避手順を案内しません。
 - このプロジェクトには署名済みビルドがありません（未署名配布）。
+- SAC は未署名のインストーラ、`WgVpn.Service.exe`、`WgVpn.App.exe` もブロックする可能性があります。その場合、アプリ内には
+  エラーは出ません（実行自体が阻止されます）。これは未検証です。確認できている事例は、この開発機のDebugビルドの
+  `WgVpn.App.exe` が SAC オンのまま一度起動できた、という1件のみです。
 
 ## 使い方
 
-1. トレイアイコンをクリックするか、スタートメニューの「ANCT WireGuard VPN」で画面を開きます。
+1. トレイアイコンをダブルクリックするか、スタートメニューの「ANCT WireGuard VPN」で画面を開きます。
 2. 「設定ファイルを読み込む」で、VPSで生成した `wgvpn-bundle.json` を選びます（上限 256 KiB、バージョン1のみ対応）。
    バンドルは秘密鍵を含みます。共有・公開せず、読み込み後に元のファイルが不要なら安全に削除してください。
 3. トグルをONにすると接続します（トレイメニューの「接続」「切断」でも可）。状態は 未接続 → 接続中 → 接続済み と変わります。
@@ -73,6 +78,9 @@ GUIに表示されるメッセージ（原文のまま）と対処です。
 | `no bundle imported` | バンドル未読み込み。「設定ファイルを読み込む」から読み込む。 |
 | `disconnect first` | 接続中・接続処理中に再度接続を要求した。いったん切断してからやり直す。 |
 | `Cannot connect until the previous cleanup succeeds.` / `Cleanup incomplete, disconnect again to retry: ...` | 前回の後片付けが未完了。「切断」をもう一度押して再試行。続く場合は `route print` で 0.0.0.0/1・128.0.0.0/1 などの残りを確認。 |
+| `No route to the proxy address ...` | プロキシ宛の経路を作れない（ネットワーク未接続など）。学内LANに接続しているか確認。 |
+| `Could not store the bundle: ...` | バンドルの保存に失敗（読み込み時）。サービスの状態と `C:\ProgramData\WgVpn` を確認。 |
+| `Connection failed: ...` | 上記以外の接続失敗。続く本文とGUIのログを確認。 |
 | `Could not resolve proxy ... to an IPv4 address.` | プロキシ名を解決できない。学内LANに接続しているか確認。 |
 | `Could not connect to the proxy on port ...` / `Proxy refused CONNECT: ...` | プロキシへ到達できない、またはCONNECTを拒否された。学内LANか、バンドルのサーバ/ポートを確認。 |
 | `TLS pin preflight timed out` | サーバへのTLS事前確認が時間切れ。VPSの稼働とポート443を確認。 |
@@ -86,9 +94,11 @@ GUIに表示されるメッセージ（原文のまま）と対処です。
 
 ## 設計上の仕様との差分
 
-- **AllowedIPs**: バンドルの `0.0.0.0/0` は、WireGuard設定では `0.0.0.0/1` と `128.0.0.0/1`
-  に分けて書き出します。これにより WireGuard for Windows の WFP キルスイッチが働きます。
-  キルスイッチが無い（`0.0.0.0/0` のままの）場合、トンネルが落ちると通信が直接外へ出る可能性があります。
+- **AllowedIPs とキルスイッチ**: バンドルの `0.0.0.0/0` は、WireGuard設定では `0.0.0.0/1` と `128.0.0.0/1`
+  に分けて書き出します。`/0` のままだと WireGuard for Windows の WFP キルスイッチが有効になり、`wstunnel.exe`
+  自身のプロキシへのLAN上のTCP接続まで遮断され、トンネルを張れないためです。その結果、**キルスイッチはありません**。
+  トンネルが落ちる（`wstunnel.exe` の異常終了など）と、通信が直接外へ出る可能性があります。切断状態や異常時に
+  外へ出られては困る通信には使わないでください。
 - **TLS証明書の固定**: `wstunnel` には証明書ピン留めのフラグがありません。そのためサービスが接続前に
   サーバ証明書のSHA-256をバンドルの `server.tlsSha256` と照合（事前確認）し、不一致なら接続しません。
 

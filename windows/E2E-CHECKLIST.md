@@ -9,7 +9,7 @@ Do not paste the bundle, private keys or its contents into notes.
 ## Install (clean machine)
 
 - [ ] Run `WgVpn-Setup-<version>.exe`; exactly one UAC prompt; SmartScreen "詳細情報 → 実行" works as the README says.
-- [ ] Smart App Control state recorded (`(Get-Mpcomputerstatus).SmartAppControlState`); if On, note whether
+- [ ] Smart App Control state recorded (`(Get-MpComputerStatus).SmartAppControlState`); if On, note whether
       `wstunnel.exe` / the exes were blocked and what the app shows at connect.
 - [ ] WireGuard for Windows was missing beforehand: the bundled MSI installed silently (no UI, no auto-launch);
       with it already installed, the installer skipped it.
@@ -18,6 +18,19 @@ Do not paste the bundle, private keys or its contents into notes.
 - [ ] `C:\ProgramData\WgVpn` exists; `icacls` shows only SYSTEM and Administrators (no inheritance, no Users).
 - [ ] Junction refused at ProgramData: with `C:\ProgramData\WgVpn` pre-created as a junction (or as a folder
       owned by a standard user), Setup aborts with the clear message and installs nothing.
+- [ ] Extra ACEs: with `C:\ProgramData\WgVpn` pre-created by a standard user (explicit ACE for Users, owner =
+      that user), Setup aborts; with one created by an elevated admin plus an explicit extra ACE for Users, Setup
+      replaces the DACL so only SYSTEM and Administrators remain (`icacls` after).
+- [ ] Pre-existing children: a planted junction/symlink inside the folder, or a child owned by a standard user,
+      makes Setup abort; legitimate `bundle.json`/`state.json` from a previous install do not.
+- [ ] Forced service start failure (e.g. temporarily make `WgVpn.Service.exe` unrunnable by SAC/AV, or run with a
+      wrong binPath): Setup shows an error telling you to re-run Setup, a silent install exits non-zero, and the GUI
+      is not launched.
+- [ ] Directory page is not shown on a clean install (install location is fixed to Program Files).
+- [ ] Upgrade failure path: if the data-folder check or the WireGuard MSI fails during an upgrade, the previously
+      running service is started again.
+- [ ] Uninstall with an undeletable/suspect `C:\ProgramData\WgVpn` (link or non-admin owner): the user is told the
+      path and that the bundle (private key) may remain.
 - [ ] The GUI starts without admin (Task Manager: not elevated) and shows the service as reachable.
 - [ ] Upgrade: re-running Setup over an existing install stops the service first, keeps the imported bundle,
       and restarts the service.
@@ -32,8 +45,10 @@ Do not paste the bundle, private keys or its contents into notes.
       `Get-CimInstance Win32_Process`); it matches `WstunnelArgs` (proxy, loopback UDP listener, remote target).
 - [ ] Loopback endpoint works with WireGuard: the WireGuard config uses the local UDP endpoint and the
       handshake completes (`wg show wgvpn`, latest handshake present).
-- [ ] AllowedIPs written as `0.0.0.0/1, 128.0.0.0/1`; the WFP kill-switch holds: kill `wstunnel.exe` and
-      confirm traffic does not leak direct (see crash step below).
+- [ ] AllowedIPs written as `0.0.0.0/1, 128.0.0.0/1`; confirm there is NO kill-switch (no WireGuard WFP block
+      filters; `/0` would have engaged one and blocked wstunnel's LAN TCP). While connected, kill `wstunnel.exe`
+      and record actual behaviour: does traffic leak direct (`https://ifconfig.me` shows the campus IP) before the
+      service tears down, and for how long.
 - [ ] Pin mismatch refused: import a bundle whose `server.tlsSha256` is altered; connect shows
       "The server's TLS certificate does not match the fingerprint in the bundle." and no tunnel/routes appear.
 - [ ] Handshake timeout: with the VPS WireGuard stopped (or a wrong server public key in a test bundle),
@@ -58,7 +73,7 @@ Do not paste the bundle, private keys or its contents into notes.
 - [ ] After OFF: no leftover routes (`route print` has no entry for the proxy/VPS host route, 0.0.0.0/1, 128.0.0.0/1
       via the tunnel) and no `WireGuardTunnel$wgvpn` service.
 - [ ] Kill `wstunnel.exe` mid-session: GUI shows エラー with "wstunnel exited with code ...", the tunnel is torn
-      down, and normal connectivity returns (kill switch does not strand the machine after teardown).
+      down, and normal connectivity returns (direct traffic works again after teardown; note any leak window).
 - [ ] Crash recovery: kill `WgVpn.Service.exe` while connected; the service restarts (about 5 s), cleans the
       stale tunnel/routes/wstunnel on startup ("Recovery: cleaning up after an unclean stop."), and OFF/ON works.
 - [ ] Daily ON/OFF (GUI and tray menu) never raises UAC.
