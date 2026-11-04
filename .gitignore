@@ -10,3 +10,7 @@ publish/
 
 # OS
 .DS_Store
+
+# Windows installer downloads and output
+windows/installer/build/
+windows/installer/output/

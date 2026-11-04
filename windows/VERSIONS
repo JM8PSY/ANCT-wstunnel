@@ -1,0 +1,12 @@
+# Pinned upstream artifacts for the Windows installer (build.ps1 verifies sha256 before use).
+# wstunnel: https://github.com/erebe/wstunnel/releases/tag/v11.1.0
+WSTUNNEL_VERSION=v11.1.0
+WSTUNNEL_URL=https://github.com/erebe/wstunnel/releases/download/v11.1.0/wstunnel_11.1.0_windows_amd64.tar.gz
+WSTUNNEL_SHA256_AMD64=b271d076fbba92fe3d8c9b7612bf17f4ac905d68614a6c40debd73107883d75e
+# WireGuard for Windows: https://download.wireguard.com/windows-client/
+# Authenticode signer confirmed as "WireGuard LLC" (Get-AuthenticodeSignature, Status Valid).
+WIREGUARD_VERSION=1.1.1
+WIREGUARD_URL=https://download.wireguard.com/windows-client/wireguard-amd64-1.1.1.msi
+WIREGUARD_SHA256_AMD64=7bfed60ad61b785c914b38b61555a975488e1d3ec472dbfb2fcdf498fca75242
+# This project (installer file name)
+WGVPN_VERSION=0.1.0

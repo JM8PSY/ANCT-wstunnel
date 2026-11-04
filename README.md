@@ -12,7 +12,7 @@ WireGuard/Tailscale等はポートとDNSの両方で遮断されています。�
 - **VPS側（サーバ）** — `wstunnel` サーバ + WireGuard の構築スクリプト。ユーザーごとに
   自分のVPSを用意する想定です。実装済み。
 - **Windowsアプリ（クライアント）** — TailscaleのようなシンプルなON/OFFトンネルアプリ。
-  接続先はVPSが生成する「接続バンドル(JSON)」を読み込むだけ。開発予定。
+  接続先はVPSが生成する「接続バンドル(JSON)」を読み込むだけ。実装済み（実機での通し確認は未実施）。
 
 ```
 vps/            VPSセットアップスクリプト（実装済み）
@@ -21,6 +21,14 @@ vps/            VPSセットアップスクリプト（実装済み）
   tests/        bats テスト
   README.md     VPS側の詳細手順
   E2E-CHECKLIST.md  実機での疎通確認チェックリスト
+windows/        Windowsクライアント（実装済み）
+  WgVpn.App/      トレイGUI (WPF)
+  WgVpn.Service/  LocalSystemサービス
+  WgVpn.Core/     ロジック
+  WgVpn.Tests/    xUnit テスト
+  installer/      Inno Setup インストーラとビルドスクリプト
+  README.md       インストール・使い方
+  E2E-CHECKLIST.md  実機での疎通確認チェックリスト（未実施）
 docs/superpowers/
   specs/        要件定義・設計ドキュメント
   plans/        実装計画（Plan A: VPS / Plan B: Windowsアプリ）
@@ -40,14 +48,19 @@ sudo bash vps/setup.sh --ip <IPアドレス>
 実行すると接続バンドル（既定 `./wgvpn-bundle.json`）が生成されます。これをWindowsクライアントに
 読み込ませて接続します。詳細は [`vps/README.md`](vps/README.md) を参照してください。
 
+## 使い方（Windows側）
+
+インストーラで導入し、バンドルを読み込んでON/OFFします。詳細は [`windows/README.md`](windows/README.md)。
+
 ## 開発
 
 ```bash
 bats vps/tests
 shellcheck -x vps/setup.sh vps/lib/*.sh
+dotnet test windows/WgVpn.sln
 ```
 
-CIで上記を自動実行します（`.github/workflows/vps-ci.yml`）。
+CIでそれぞれ自動実行します（`.github/workflows/vps-ci.yml`、`.github/workflows/windows-ci.yml`）。
 
 ## 注意
 
