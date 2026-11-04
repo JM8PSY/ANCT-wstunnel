@@ -16,6 +16,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Logoff/shutdown must not be blocked by hide-to-tray.
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => Host.IsExiting = true;
         ShowStatus(StatusPresenter.ServiceUnavailable());
     }
 

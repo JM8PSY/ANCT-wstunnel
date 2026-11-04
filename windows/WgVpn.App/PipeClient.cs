@@ -54,9 +54,9 @@ public sealed class PipeClient
                 ? new PipeResult.ServiceUnavailable("cancelled")
                 : new PipeResult.ServiceUnavailable("timeout");
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or IpcFormatException
-                                      or TimeoutException or ObjectDisposedException or InvalidOperationException)
+        catch (Exception e)
         {
+            // Contract: never throw to the UI, whatever the framing/JSON/pipe layers raise.
             return new PipeResult.ServiceUnavailable(e.GetType().Name);
         }
     }

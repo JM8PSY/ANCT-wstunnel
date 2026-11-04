@@ -31,7 +31,7 @@ public partial class App : System.Windows.Application
     private StatusView _view = StatusPresenter.ServiceUnavailable();
     private (string Status, string? Error)? _lastLogged;
 
-    public bool IsExiting { get; private set; }
+    public bool IsExiting { get; set; }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -129,6 +129,10 @@ public partial class App : System.Windows.Application
                 ? StatusPresenter.FromReply(r)
                 : StatusPresenter.ServiceUnavailable());
         }
+        catch (Exception)
+        {
+            if (!IsExiting) Apply(StatusPresenter.ServiceUnavailable());
+        }
         finally
         {
             _polling = false;
@@ -177,6 +181,14 @@ public partial class App : System.Windows.Application
                 _window?.AppendLog("サービスに接続できません (" + u.Reason + ")");
             else if (result is PipeResult.Reply { Message: StatusReply r })
                 Apply(StatusPresenter.FromReply(r));
+            else if (result is PipeResult.Rejected j)
+                _window?.AppendLog("要求は拒否されました: " + j.Reason);
+            else
+                _window?.AppendLog("予期しない応答を受信しました");
+        }
+        catch (Exception e)
+        {
+            _window?.AppendLog("エラー: " + e.GetType().Name);
         }
         finally
         {
@@ -205,7 +217,9 @@ public partial class App : System.Windows.Application
             }
             text = await File.ReadAllTextAsync(dlg.FileName);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                                      or System.Security.SecurityException or NotSupportedException
+                                      or ArgumentException)
         {
             _window?.AppendLog("読み込み失敗: ファイルを開けません");
             return;
