@@ -49,4 +49,20 @@ public class IpcMessagesTests
     {
         Assert.Throws<IpcFormatException>(() => IpcSerializer.Deserialize(input));
     }
+
+    [Theory]
+    [InlineData("{\"type\":\"importBundle\"}")]
+    [InlineData("{\"type\":\"importBundle\",\"bundleJson\":null}")]
+    public void ImportBundleRequest_without_BundleJson_is_rejected(string input)
+    {
+        Assert.Throws<IpcFormatException>(() => IpcSerializer.Deserialize(input));
+    }
+
+    [Fact]
+    public void ImportBundleRequest_ToString_redacts_BundleJson()
+    {
+        var text = new ImportBundleRequest("{\"privateKey\":\"SECRET\"}").ToString();
+        Assert.DoesNotContain("SECRET", text);
+        Assert.DoesNotContain("privateKey", text);
+    }
 }

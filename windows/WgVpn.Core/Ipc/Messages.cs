@@ -12,6 +12,8 @@ public sealed class IpcFormatException : Exception
     public IpcFormatException(string message, Exception? inner = null) : base(message, inner) { }
 }
 
+// The discriminator must be the first JSON property: System.Text.Json rejects a message whose
+// "type" comes later. Serialize writes it first; hand-written JSON has to do the same.
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(ConnectRequest), "connect")]
 [JsonDerivedType(typeof(DisconnectRequest), "disconnect")]
@@ -24,7 +26,12 @@ public abstract record IpcMessage;
 public sealed record ConnectRequest : IpcMessage;
 public sealed record DisconnectRequest : IpcMessage;
 public sealed record GetStatusRequest : IpcMessage;
-public sealed record ImportBundleRequest(string BundleJson) : IpcMessage;
+public sealed record ImportBundleRequest(string BundleJson) : IpcMessage
+{
+    /// <summary>BundleJson holds the WireGuard private key, so it never reaches logs or exception text.</summary>
+    public override string ToString() => "ImportBundleRequest { BundleJson = [redacted] }";
+}
+
 public sealed record ImportBundleReply(bool Ok, string? Error) : IpcMessage;
 public sealed record StatusReply(TunnelState State, string? ServerHost, string? LastError) : IpcMessage;
 
@@ -43,8 +50,12 @@ public static class IpcSerializer
     {
         try
         {
-            return JsonSerializer.Deserialize<IpcMessage>(json, Options)
+            var message = JsonSerializer.Deserialize<IpcMessage>(json, Options)
                 ?? throw new IpcFormatException("IPC message is null");
+            // System.Text.Json does not enforce non-nullable constructor parameters.
+            if (message is ImportBundleRequest { BundleJson: null })
+                throw new IpcFormatException("ImportBundleRequest has no BundleJson");
+            return message;
         }
         catch (Exception e) when (e is JsonException or NotSupportedException or ArgumentNullException)
         {

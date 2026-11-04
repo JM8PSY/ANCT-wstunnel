@@ -90,6 +90,26 @@ public class StateMachineTests
         Assert.Equal(TunnelState.Disconnected, m.State);
     }
 
+    [Theory]
+    [InlineData(TunnelState.Connecting)]
+    [InlineData(TunnelState.Connected)]
+    public void OnFailed_active_goes_to_Error(TunnelState s)
+    {
+        var m = InState(s);
+        m.OnFailed();
+        Assert.Equal(TunnelState.Error, m.State);
+    }
+
+    [Theory]
+    [InlineData(TunnelState.Disconnected)]
+    [InlineData(TunnelState.Error)]
+    public void OnFailed_inactive_is_noop(TunnelState s)
+    {
+        var m = InState(s);
+        m.OnFailed();
+        Assert.Equal(s, m.State);
+    }
+
     [Fact]
     public void Parallel_Connect_returns_true_exactly_once()
     {

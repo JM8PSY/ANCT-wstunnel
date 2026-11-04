@@ -32,7 +32,12 @@ public sealed class ConnectionStateMachine
         lock (_gate) _state = TunnelState.Disconnected;
     }
 
-    public void OnProcessExited()
+    public void OnProcessExited() => ToErrorIfActive();
+
+    /// <summary>A failure other than the wstunnel process dying. No-op unless Connecting or Connected.</summary>
+    public void OnFailed() => ToErrorIfActive();
+
+    private void ToErrorIfActive()
     {
         lock (_gate)
         {
