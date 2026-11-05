@@ -1,6 +1,6 @@
 # Windows end-to-end checklist
 
-**Not yet executed.** Nothing below has been run: it needs a clean Windows machine, a real VPS (Plan A,
+**Not fully executed.** On 2026-11-05 the author reported a working connection with the v0.1.0-beta.1 build, but no item below has been individually recorded. The full run needs a clean Windows machine, a real VPS (Plan A,
 `wgvpn-bundle.json`) and the campus LAN, plus an administrator for the install. Record results here
 (check the box, add notes, date, Windows version, whether Smart App Control was on).
 
@@ -82,7 +82,7 @@ Do not paste the bundle, private keys or its contents into notes.
       has no wstunnel until the service's startup recovery uninstalls it); confirm "Recovery: removing a leftover
       tunnel service." or the state-file recovery message appears in the log, and no `WireGuardTunnel$wgvpn` remains.
 - [ ] Error state: after a failed connect the toggle is OFF; one click retries Connect, and 切断 is still offered.
-- [ ] Logon autostart shows only the tray icon (no window); the post-install launch and the Start Menu entry show the window.
+- [ ] Logon autostart shows only the tray icon (no window); the post-install launch and the Start Menu entry show the window, including when the Start Menu entry is used while the tray instance is already running (window comes to the foreground; no second tray icon).
 - [ ] Toggle OFF/ON several times rapidly: never more than one `wstunnel.exe` (Task Manager / `Get-Process wstunnel`).
 - [ ] After OFF: no leftover routes (`route print` has no entry for the proxy/VPS host route, 0.0.0.0/1, 128.0.0.0/1
       via the tunnel) and no `WireGuardTunnel$wgvpn` service.

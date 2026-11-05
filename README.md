@@ -12,7 +12,7 @@ WireGuard/Tailscale等はポートとDNSの両方で遮断されています。�
 - **VPS側（サーバ）** — `wstunnel` サーバ + WireGuard の構築スクリプト。ユーザーごとに
   自分のVPSを用意する想定です。実装済み。
 - **Windowsアプリ（クライアント）** — TailscaleのようなシンプルなON/OFFトンネルアプリ。
-  接続先はVPSが生成する「接続バンドル(JSON)」を読み込むだけ。実装済み（実機での通し確認は未実施）。
+  接続先はVPSが生成する「接続バンドル(JSON)」を読み込むだけ。ベータ版（作者の環境で接続を確認。チェックリストの全項目は未完了）。
 
 ```
 vps/            VPSセットアップスクリプト（実装済み）
@@ -28,7 +28,7 @@ windows/        Windowsクライアント（実装済み）
   WgVpn.Tests/    xUnit テスト
   installer/      Inno Setup インストーラとビルドスクリプト
   README.md       インストール・使い方
-  E2E-CHECKLIST.md  実機での疎通確認チェックリスト（未実施）
+  E2E-CHECKLIST.md  実機での疎通確認チェックリスト（全項目は未完了）
 docs/superpowers/
   specs/        要件定義・設計ドキュメント
   plans/        実装計画（Plan A: VPS / Plan B: Windowsアプリ）
@@ -37,7 +37,7 @@ LICENSE         GPL-3.0 全文
 
 ## 使い方（VPS側）
 
-クリーンなUbuntu LTS（amd64/arm64、root権限）で:
+クリーンなUbuntu LTS または Debian 12（amd64/arm64、root権限）で:
 
 ```bash
 sudo bash vps/setup.sh --host <あなたのVPSのDDNS名>

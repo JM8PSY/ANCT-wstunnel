@@ -7,7 +7,7 @@ The script produces a connection bundle that the Windows client app loads.
 
 ## Prerequisites
 
-- A clean Ubuntu LTS VPS (amd64 or arm64), with root/sudo.
+- A clean Ubuntu LTS or Debian 12 VPS (amd64 or arm64), with root/sudo. Setup has been run on Debian 12.
 - A global IP address or a DDNS name pointing at the VPS.
 - TCP port 443 free (and allowed by the provider's firewall).
 

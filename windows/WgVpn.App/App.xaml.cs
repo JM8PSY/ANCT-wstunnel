@@ -2,6 +2,7 @@
 // Copyright (C) 2026 National Institute of Technology, Asahikawa College New-Tech-Club
 
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
 using WgVpn.Core;
@@ -20,7 +21,11 @@ public partial class App : System.Windows.Application
     private static readonly TimeSpan ImportTimeout = TimeSpan.FromSeconds(15);
 
     private readonly PipeClient _client = new();
+    private const int AsfwAny = -1;
+
     private Mutex? _singleInstance;
+    private EventWaitHandle? _showRequest;
+    private RegisteredWaitHandle? _showRequestWait;
     private MainWindow? _window;
     private Forms.NotifyIcon? _tray;
     private TrayIcons? _icons;
@@ -33,15 +38,31 @@ public partial class App : System.Windows.Application
 
     public bool IsExiting { get; set; }
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(int processId);
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        // Local\ namespace = per user session.
+        var trayOnly = e.Args.Contains("--tray");
+        // Local\ namespace = per user session. Opened before the mutex check so a request sent
+        // while the first instance is still starting stays signalled until it starts waiting.
+        _showRequest = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\ANCT.WgVpn.Show");
         _singleInstance = new Mutex(true, @"Local\ANCT.WgVpn.Tray", out var created);
         if (!created)
         {
             _singleInstance.Dispose();
             _singleInstance = null;
+            if (!trayOnly)
+            {
+                // A manual launch asks the running instance to open its window. Only this process
+                // holds the foreground right, so hand it over or Activate would just flash the taskbar.
+                AllowSetForegroundWindow(AsfwAny);
+                _showRequest.Set();
+            }
+            _showRequest.Dispose();
+            _showRequest = null;
             Shutdown();
             return;
         }
@@ -50,7 +71,13 @@ public partial class App : System.Windows.Application
         _icons = new TrayIcons();
         BuildTray();
         // The logon autostart passes --tray: start in the tray only. A manual or post-install launch shows the window.
-        if (!e.Args.Contains("--tray")) _window.Show();
+        if (!trayOnly) _window.Show();
+        _showRequestWait = ThreadPool.RegisterWaitForSingleObject(
+            _showRequest,
+            (_, _) => Dispatcher.BeginInvoke(ShowWindow),
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
 
         _timer = new DispatcherTimer { Interval = PollInterval };
         _timer.Tick += async (_, _) => await PollAsync();
@@ -80,7 +107,7 @@ public partial class App : System.Windows.Application
 
     private void ShowWindow()
     {
-        if (_window == null) return;
+        if (_window == null || IsExiting) return;
         _window.Show();
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
         _window.Activate();
@@ -103,6 +130,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _showRequestWait?.Unregister(null);
+        _showRequest?.Dispose();
         _tray?.Dispose();
         _icons?.Dispose();
         if (_singleInstance != null)
