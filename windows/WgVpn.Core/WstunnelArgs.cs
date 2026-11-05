@@ -10,6 +10,10 @@ public static class WstunnelArgs
     public const string LocalForwardFlag = "-L";
     public const string HttpProxyFlag = "--http-proxy";
 
+    /// <summary>Keeps escape codes out of LastError. wstunnel parses this as a bool: "1" makes it exit at startup.</summary>
+    public const string NoColorEnvName = "NO_COLOR";
+    public const string NoColorEnvValue = "true";
+
     /// <param name="proxyAddress">Optional IP replacing the proxy host (port unchanged), to avoid re-resolving DNS through the tunnel.</param>
     public static string[] Build(ConnectionBundle b, string? proxyAddress = null)
     {

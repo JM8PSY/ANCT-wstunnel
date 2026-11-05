@@ -28,6 +28,15 @@ public class WstunnelArgsTests
     }
 
     [Fact]
+    public void No_color_env_value_is_one_wstunnel_accepts()
+    {
+        // wstunnel parses NO_COLOR as a clap bool: "1" makes it exit immediately with
+        // "invalid value '1' for '--no-color'" (verified against a v11.1.0 build).
+        Assert.Equal("NO_COLOR", WstunnelArgs.NoColorEnvName);
+        Assert.Equal("true", WstunnelArgs.NoColorEnvValue);
+    }
+
+    [Fact]
     public void Proxy_address_override_replaces_host_keeps_port()
     {
         var a = WstunnelArgs.Build(Sample(), "203.0.113.7");

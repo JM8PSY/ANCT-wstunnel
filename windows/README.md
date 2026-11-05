@@ -3,7 +3,7 @@
 VPS側（`vps/`）が生成する接続バンドル(JSON)を読み込み、ON/OFFだけで学内LANのHTTPプロキシ越しに
 `wstunnel` + WireGuard のトンネルを張るWindowsアプリです。
 
-> 状態: 実装済みですが、実機（クリーンなWindows・実VPS・学内LAN）での通し確認は未実施です。
+> 状態: ベータ版です。作者の環境で接続を確認しましたが、[`E2E-CHECKLIST.md`](E2E-CHECKLIST.md) の全項目は確認できていません。
 > 確認項目は [`E2E-CHECKLIST.md`](E2E-CHECKLIST.md) にあり、結果はそこに記録します。
 
 ## 構成
@@ -44,8 +44,11 @@ VPS側（`vps/`）が生成する接続バンドル(JSON)を読み込み、ON/OF
 
 SmartScreen の手順は **Smart App Control（SAC）には効きません**。開発機（SAC がオン）では、公式の
 `wstunnel.exe` v11.1.0 が "An Application Control policy has blocked this file. Malicious binary
-reputation" としてブロックされました。SAC により実行がブロックされると、接続時にアプリがエラーを表示します
-（トンネルは張れません）。
+reputation" としてブロックされ、Microsoft Defender にも `Trojan:Win32/Kepavll!rfn` として隔離されました。
+そのためインストーラには、同じ v11.1.0 のソースからビルドした `wstunnel.exe` を同梱しています。開発機では、これが
+SAC オンのまま起動し、Defender の手動スキャンでも検出されませんでした。ただし確認できているのはこの1台のビルドだけで、
+ほかのPCや別のビルドでブロックされないことは保証できません。SAC により実行がブロックされると、接続時にアプリが
+エラーを表示します（トンネルは張れません）。
 
 - SAC の状態は PowerShell で確認できます: `(Get-MpComputerStatus).SmartAppControlState`
 - この設定を変更するかどうかは、そのPCの所有者が判断することです。このドキュメントでは回避手順を案内しません。
@@ -119,7 +122,9 @@ GUIに表示されるメッセージ（原文のまま）と対処です。
 
 ## ビルド（ソースから）
 
-前提: .NET 8 SDK、Inno Setup 6（`winget install JRSoftware.InnoSetup --scope user`）。
+前提: .NET 8 SDK、Inno Setup 6（`winget install JRSoftware.InnoSetup --scope user`）、git、rustup
+（`winget install Rustlang.Rustup`。[`VERSIONS`](VERSIONS) に固定したツールチェーンを使います）、
+Visual Studio の C++ ビルドツール。
 
 ```powershell
 dotnet test windows/WgVpn.sln
@@ -127,8 +132,9 @@ powershell -File windows/installer/build.ps1                  # 成果物: windo
 powershell -File windows/installer/build.ps1 -SkipInstaller   # publish まで（Inno Setup 不要）
 ```
 
-`build.ps1` は [`VERSIONS`](VERSIONS) に固定した `wstunnel`（v11.1.0）と WireGuard for Windows の MSI を
-ダウンロードし、SHA-256 を検証（不一致なら削除して中止）してから、App と Service を自己完結・単一ファイルで
+`build.ps1` は [`VERSIONS`](VERSIONS) に固定した WireGuard for Windows の MSI をダウンロードして SHA-256 を
+検証（不一致なら削除して中止）し、`wstunnel` を固定したコミット（v11.1.0）からビルドします（初回は10分程度）。
+ビルドした `wstunnel.exe` が起動できない場合も中止します。続けて App と Service を自己完結・単一ファイルで
 publish し、インストーラを作ります。バイナリはリポジトリに含めません（`windows/installer/build/` と
 `output/` は git 管理外）。自己完結のためインストーラは約74 MiB（publish後の App 約154 MiB、
 Service 約67 MiB、`wstunnel.exe` 約10 MiB）あります。

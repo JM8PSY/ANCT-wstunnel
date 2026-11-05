@@ -214,7 +214,7 @@ public sealed class WindowsTunnelPlatform : ITunnelPlatform
     {
         ct.ThrowIfCancellationRequested();
         var psi = NewStartInfo(Path.Combine(AppContext.BaseDirectory, "wstunnel.exe"), args);
-        psi.Environment["NO_COLOR"] = "1"; // keeps escape codes out of LastError
+        psi.Environment[WstunnelArgs.NoColorEnvName] = WstunnelArgs.NoColorEnvValue;
 
         var process = new Process { StartInfo = psi };
         try

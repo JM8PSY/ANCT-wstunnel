@@ -1,8 +1,12 @@
-# Pinned upstream artifacts for the Windows installer (build.ps1 verifies sha256 before use).
-# wstunnel: https://github.com/erebe/wstunnel/releases/tag/v11.1.0
+# Pinned upstream inputs for the Windows installer (build.ps1 verifies them before use).
+# wstunnel is built from source: Smart App Control blocks the official v11.1.0 Windows binary and
+# Defender quarantines it (see README). The commit is what the v11.1.0 tag points at.
+# ring instead of the default aws-lc-rs: no cmake/nasm needed. Upstream tests this feature set in CI.
 WSTUNNEL_VERSION=v11.1.0
-WSTUNNEL_URL=https://github.com/erebe/wstunnel/releases/download/v11.1.0/wstunnel_11.1.0_windows_amd64.tar.gz
-WSTUNNEL_SHA256_AMD64=b271d076fbba92fe3d8c9b7612bf17f4ac905d68614a6c40debd73107883d75e
+WSTUNNEL_GIT_URL=https://github.com/erebe/wstunnel.git
+WSTUNNEL_COMMIT=d1bc22c48a26f29d87d2c8de1d09a018e602b7fa
+WSTUNNEL_CARGO_FEATURES=ring
+WSTUNNEL_RUST_TOOLCHAIN=1.99.1
 # WireGuard for Windows: https://download.wireguard.com/windows-client/
 # Authenticode signer confirmed as "WireGuard LLC" (Get-AuthenticodeSignature, Status Valid).
 WIREGUARD_VERSION=1.1.1
